@@ -40,6 +40,13 @@ SEEN_LIMIT = 3000
 MESSAGES_FULL_RESYNC = timedelta(hours=24)
 # zapas na różnice stref/zegarów między HA a serwerem szkoły
 MESSAGES_OVERLAP = timedelta(hours=6)
+# jak głęboko sięga "pełne" pobranie skrzynki. Bez tego ograniczenia szło się po całą
+# historię konta: przy dużej skrzynce pierwsze odświeżenie nie mieściło się w limicie
+# czasu na setup wpisu i HA przerywał konfigurację integracji. Licznik nieprzeczytanych
+# i lista ostatnich wiadomości nie potrzebują archiwum sprzed lat.
+MESSAGES_HISTORY = timedelta(days=120)
+# ile stron (po 500 rekordów) wolno pobrać dla skrzynki w jednym przebiegu
+MESSAGES_MAX_PAGES = 8
 
 
 def _short(text: str | None) -> str:
@@ -120,7 +127,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             self.api.homework(rest, pid, h_from, h_to),
             self.api.grades(rest, pid, unit.get("Id"), period["Id"]) if period else none(),
             self.api.notes(rest, pid),
-            self._fetch_messages(rest, pid, login_id, box),
+            self._fetch_messages_safe(rest, pid, login_id, box),
         )
 
         return m.PupilData(
@@ -146,6 +153,23 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             return None  # szkoła może nie losować numerka
         return (raw or {}).get("Number") or None
 
+    async def _fetch_messages_safe(self, rest: str, pid: int, login_id: int, box: str | None) -> list[m.Message]:
+        """Skrzynka nie może przewrócić całej integracji.
+
+        Jest największa i najwolniejsza ze wszystkich kategorii, a plan lekcji, oceny i
+        sprawdziany są od niej niezależne. Gdy jej pobranie padnie, oddajemy to, co już
+        mieliśmy, i lecimy dalej — bez tego pojedynczy błąd skrzynki zabierał użytkownikowi
+        wszystkie encje naraz.
+        """
+        try:
+            return await self._fetch_messages(rest, pid, login_id, box)
+        except (ApiError, TransportError) as err:
+            _LOGGER.warning("Nie udało się pobrać skrzynki (%s) — pozostałe dane bez zmian", err)
+            return sorted(
+                (self._messages.get(login_id) or {}).values(),
+                key=lambda x: (x.sent is not None, x.sent),
+            )
+
     async def _fetch_messages(self, rest: str, pid: int, login_id: int, box: str | None) -> list[m.Message]:
         """Pełne pobranie raz na dobę, poza tym tylko to, co się zmieniło od ostatniego razu.
 
@@ -157,13 +181,16 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         now = dt_util.now()
         since = self._messages_synced.get(login_id)
         full = since is None or (now - since) >= MESSAGES_FULL_RESYNC
-        raw = await self.api.messages_received(rest, pid, box, since=None if full else since - MESSAGES_OVERLAP)
+        # pełne pobranie sięga MESSAGES_HISTORY wstecz, nie po całą historię konta
+        od = now - MESSAGES_HISTORY if full else since - MESSAGES_OVERLAP
+        raw = await self.api.messages_received(rest, pid, box, since=od, max_pages=MESSAGES_MAX_PAGES)
         store = {} if full else dict(self._messages.get(login_id) or {})
         for msg in m.parse_all(m.parse_message, raw):
             store[msg.key] = msg
         self._messages[login_id] = store
         self._messages_synced[login_id] = now
         return sorted(store.values(), key=lambda x: (x.sent is not None, x.sent))
+
 
     def account_for(self, login_id: int) -> dict:
         return next(a for a in self.accounts if a["Pupil"]["LoginId"] == login_id)
