@@ -19,6 +19,7 @@ SPRAWDZIAN = "sensor.ala_testowa_najblizszy_sprawdzian"
 SPRAWDZIANY_7 = "sensor.ala_testowa_sprawdziany_w_7_dni"
 ZMIANY = "sensor.ala_testowa_zmiany_w_planie_7_dni"
 OCENA = "sensor.ala_testowa_ostatnia_ocena"
+OCENY = "sensor.ala_testowa_oceny"
 WIADOMOSCI = "sensor.ala_testowa_nieprzeczytane_wiadomosci"
 UWAGI = "sensor.ala_testowa_uwagi"
 NUMEREK = "sensor.ala_testowa_szczesliwy_numerek"
@@ -88,7 +89,7 @@ async def test_sensor_synchronizacji_zyje_mimo_bledu(hass, entry, setup_entry):
     await hass.async_block_till_done()
     stan = hass.states.get(SYNC)
     assert stan.state not in ("unavailable", "unknown")
-    assert stan.attributes["ok"] is False and stan.attributes["błąd"]
+    assert stan.attributes["ok"] is False and stan.attributes["blad"]
 
 
 async def test_kalendarz_lekcji_pokazuje_zastepstwo_i_odwolanie(hass, setup_entry):
@@ -132,5 +133,24 @@ async def test_jedno_urzadzenie_na_ucznia(hass, entry, setup_entry):
     assert device.model == "klasa 5a"
     entities = er.async_get(hass)
     nasze = er.async_entries_for_device(entities, device.id, include_disabled_entities=True)
-    assert len(nasze) == 13  # 11 sensorów + 2 kalendarze
+    assert len(nasze) == 14  # 12 sensorów + 2 kalendarze
     assert all(e.config_entry_id == entry.entry_id for e in nasze)
+
+
+async def test_sensor_ocen_srednie_i_podzial_na_przedmioty(hass, setup_entry):
+    stan = hass.states.get(OCENY)
+    assert stan.state == "4.41"
+    assert stan.attributes["liczba_ocen"] == 5
+    assert stan.attributes["bez_wartosci"] == 1
+    assert stan.attributes["wartosc_z_serwera"] == 1
+
+    przedmioty = {p["przedmiot"]: p for p in stan.attributes["przedmioty"]}
+    assert set(przedmioty) == {"Biologia", "Matematyka"}
+    assert przedmioty["Matematyka"]["srednia"] == 4.6
+    assert przedmioty["Biologia"]["srednia"] == 3.95
+    assert przedmioty["Matematyka"]["liczba"] == 3
+
+    oceny = przedmioty["Matematyka"]["oceny"]
+    assert [o["ocena"] for o in oceny] == ["np", "4", "5+"]
+    assert [o["waga"] for o in oceny] == [0.0, 3.0, 2.0]
+    assert oceny[0]["wartosc"] is None and oceny[2]["wartosc"] == 5.5

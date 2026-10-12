@@ -65,6 +65,9 @@
       "last_grade": {
         "name": "Ostatnia ocena"
       },
+      "grades": {
+        "name": "Oceny"
+      },
       "unread_messages": {
         "name": "Nieprzeczytane wiadomości"
       },
