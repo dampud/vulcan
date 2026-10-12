@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorEntityDescription
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -17,6 +22,9 @@ from . import model as m
 from .entity import VulcanEntity
 
 MAX_LIST = 10
+# ile ocen z przedmiotu trafia do atrybutów — atrybuty encji lądują w bazie
+# recordera przy każdej zmianie stanu, więc nie wpuszczamy tam całego dziennika
+MAX_GRADES = 30
 
 
 def _today():
@@ -52,6 +60,34 @@ def _changes(p: m.PupilData) -> list[m.Lesson]:
     return p.changes_between(_today(), _today() + timedelta(days=7))
 
 
+def _grade_entry(g: m.Grade) -> dict[str, Any]:
+    return {
+        "ocena": g.value,
+        "wartosc": g.numeric,
+        "waga": g.weight,
+        "kolumna": g.column,
+        "data": g.created.date().isoformat() if g.created else None,
+    }
+
+
+def _grades_attrs(p: m.PupilData) -> dict[str, Any]:
+    przedmioty = [
+        {
+            "przedmiot": subject,
+            "srednia": m.weighted_average(grades),
+            "liczba": len(grades),
+            "oceny": [_grade_entry(g) for g in grades[-MAX_GRADES:]],
+        }
+        for subject, grades in p.grades_by_subject().items()
+    ]
+    return {
+        "liczba_ocen": len(p.grades),
+        "bez_wartosci": sum(1 for g in p.grades if g.numeric is None),
+        "wartosc_z_serwera": sum(1 for g in p.grades if g.numeric_from_api),
+        "przedmioty": przedmioty,
+    }
+
+
 @dataclass(frozen=True, kw_only=True)
 class VulcanSensorDescription(SensorEntityDescription):
     value: Callable[[m.PupilData], Any]
@@ -84,10 +120,12 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
     ),
     VulcanSensorDescription(
         key="exams_7_days", native_unit_of_measurement="szt.",
+        state_class=SensorStateClass.MEASUREMENT,
         value=lambda p: sum(1 for e in p.upcoming_exams(_today()) if e.day <= _today() + timedelta(days=7)),
     ),
     VulcanSensorDescription(
         key="schedule_changes", native_unit_of_measurement="szt.",
+        state_class=SensorStateClass.MEASUREMENT,
         value=lambda p: len(_changes(p)),
         attrs=lambda p: {"zmiany": [
             f"{l.day.isoformat()} lekcja {l.position}: {'ODWOŁANA ' if l.cancelled else ''}{l.subject}"
@@ -101,7 +139,13 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
                          "data": g.created.isoformat() if g.created else None} if (g := p.latest_grade()) else {},
     ),
     VulcanSensorDescription(
+        key="grades", state_class=SensorStateClass.MEASUREMENT,
+        value=lambda p: p.average(),
+        attrs=_grades_attrs,
+    ),
+    VulcanSensorDescription(
         key="unread_messages", native_unit_of_measurement="szt.",
+        state_class=SensorStateClass.MEASUREMENT,
         value=lambda p: p.unread_messages,
         attrs=lambda p: {"ostatnie": [
             f"{x.sent.strftime('%d.%m %H:%M') if x.sent else ''} {x.sender}: {x.subject}"
@@ -110,6 +154,7 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
     ),
     VulcanSensorDescription(
         key="notes", native_unit_of_measurement="szt.",
+        state_class=SensorStateClass.MEASUREMENT,
         value=lambda p: len(p.notes),
         attrs=lambda p: {"pozytywne": sum(1 for n in p.notes if n.positive),
                          "negatywne": sum(1 for n in p.notes if not n.positive)},
@@ -164,4 +209,4 @@ class VulcanLastSync(VulcanEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         err = self.coordinator.last_exception
-        return {"ok": self.coordinator.last_update_success, "błąd": str(err) if err else None}
+        return {"ok": self.coordinator.last_update_success, "blad": str(err) if err else None}
