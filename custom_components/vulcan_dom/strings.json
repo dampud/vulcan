@@ -35,9 +35,15 @@
         "title": "Ustawienia eduVULCAN",
         "data": {
           "scan_interval": "Odpytywanie co (min)",
-          "quiet_start": "Cisza nocna od godziny",
-          "quiet_end": "Cisza nocna do godziny",
-          "write_limit": "Limit wysłanych wiadomości/usprawiedliwień na dobę"
+          "quiet_start": "Cisza nocna od godziny (0–23)",
+          "quiet_end": "Cisza nocna do godziny (0–23)",
+          "write_limit": "Limit wysyłek na dobę"
+        },
+        "data_description": {
+          "scan_interval": "Co ile minut integracja pyta eduVULCAN o nowe dane. Poza ciszą nocną.",
+          "quiet_start": "Pełna godzina doby, od której integracja przestaje odpytywać: 22 znaczy 22:00. Zakres 0–23.",
+          "quiet_end": "Pełna godzina doby, o której znowu zaczyna: 6 znaczy 6:00. Ta sama wartość co początek wyłącza ciszę nocną.",
+          "write_limit": "Ile najwyżej wiadomości i usprawiedliwień można wysłać w ciągu doby. Bezpiecznik przed pętlą w automatyzacji."
         }
       }
     }
