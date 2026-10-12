@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import json
 import os
 import sys
@@ -25,32 +24,19 @@ from pathlib import Path
 from typing import Any
 
 from .api import VulcanApi
+from .auth import ApDataError
+from .auth import parse_ap as _parse_ap
 from .credential import Credential
 from .errors import VulcanError
 
 DEFAULT_CRED = Path(os.environ.get("VULCAN_CREDENTIAL", "~/.config/vulcan/credential.json")).expanduser()
 
 
-def jwt_payload(token: str) -> dict:
-    part = token.split(".")[1]
-    part += "=" * (-len(part) % 4)
-    return json.loads(base64.urlsafe_b64decode(part))
-
-
 def parse_ap(raw: str) -> dict[str, list[str]]:
-    """JSON z ukrytego pola #ap → {tenant: [jwt, ...]}. Waliduje jak aplikacja."""
-    data = json.loads(raw)
-    if not data.get("Success"):
-        raise SystemExit(f"/api/ap: Success=false ({data.get('ErrorMessage')})")
-    if not data.get("IsConsentAccepted"):
-        raise SystemExit("/api/ap: zgody nie zaakceptowane — zaakceptuj je na eduvulcan.pl")
-    tokens = data.get("Tokens") or []
-    if not tokens:
-        raise SystemExit("/api/ap: brak tokenów (konto bez powiązanych uczniów?)")
-    by_tenant: dict[str, list[str]] = {}
-    for tok in tokens:
-        by_tenant.setdefault(jwt_payload(tok)["tenant"], []).append(tok)
-    return by_tenant
+    try:
+        return _parse_ap(raw)
+    except ApDataError as err:
+        raise SystemExit(f"/api/ap: {err}") from None
 
 
 def pupil_label(acc: dict) -> str:

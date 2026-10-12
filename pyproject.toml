@@ -19,6 +19,7 @@ vulcan = "vulcan_client.cli:main"
 
 [tool.setuptools]
 packages = ["vulcan_client"]
+package-dir = {"vulcan_client" = "custom_components/vulcan_dom/vulcan_client"}
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
