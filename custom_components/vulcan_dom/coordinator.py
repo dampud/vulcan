@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -34,6 +34,13 @@ _LOGGER = logging.getLogger(__name__)
 
 CATEGORIES = ("grades", "notes", "messages", "exams", "homework", "changes")
 
+# ile kluczy na kategorię pamiętamy, żeby nie wysłać drugi raz zdarzenia o tym samym
+SEEN_LIMIT = 3000
+# wiadomości: pełne pobranie co tyle, między nimi tylko przyrost (lastSyncDate)
+MESSAGES_FULL_RESYNC = timedelta(hours=24)
+# zapas na różnice stref/zegarów między HA a serwerem szkoły
+MESSAGES_OVERLAP = timedelta(hours=6)
+
 
 def _short(text: str | None) -> str:
     text = (text or "").strip()
@@ -56,6 +63,8 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         self.accounts: list[dict] = []
         self._store: Store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.seen")
         self._seen: dict[str, dict[str, list[str]]] | None = None
+        self._messages: dict[int, dict[str, m.Message]] = {}
+        self._messages_synced: dict[int, datetime] = {}
         self.last_sync = None
         self.force_next = False
 
@@ -89,9 +98,11 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         return data
 
     async def _fetch_pupil(self, acc: dict) -> m.PupilData:
-        rest = acc["Unit"]["RestURL"]
-        pupil = acc["Pupil"]
-        pid = pupil["Id"]
+        unit = acc.get("Unit") or {}
+        pupil = acc.get("Pupil") or {}
+        rest, pid, login_id = unit.get("RestURL"), pupil.get("Id"), pupil.get("LoginId")
+        if not rest or pid is None or login_id is None:
+            raise UpdateFailed("konto bez Unit.RestURL / Pupil.Id — nieoczekiwany kształt odpowiedzi")
         today = dt_util.now().date()
         box = (acc.get("MessageBox") or {}).get("GlobalKey")
         period = next((p for p in acc.get("Periods") or [] if p.get("Current")), None)
@@ -107,29 +118,52 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             self.api.schedule(rest, pid, s_from, s_to),
             self.api.exams(rest, pid, e_from, e_to),
             self.api.homework(rest, pid, h_from, h_to),
-            self.api.grades(rest, pid, acc["Unit"]["Id"], period["Id"]) if period else none(),
+            self.api.grades(rest, pid, unit.get("Id"), period["Id"]) if period else none(),
             self.api.notes(rest, pid),
-            self.api.messages_received(rest, pid, box) if box else none(),
+            self._fetch_messages(rest, pid, login_id, box),
         )
-        lucky = None
-        try:
-            raw = await self.api.lucky_number(rest, pid, acc["ConstituentUnit"]["Id"], today)
-            lucky = (raw or {}).get("Number") or None
-        except (ApiError, TransportError):
-            pass  # szkoła może nie losować numerka
 
         return m.PupilData(
             pupil_id=pid,
-            login_id=pupil["LoginId"],
+            login_id=login_id,
             name=f"{pupil.get('FirstName', '')} {pupil.get('Surname', '')}".strip(),
             lessons=m.parse_all(m.parse_lesson, schedule),
             exams=m.parse_all(m.parse_exam, exams),
             homework=m.parse_all(m.parse_homework, homework),
             grades=m.parse_all(m.parse_grade, grades),
             notes=m.parse_all(m.parse_note, notes),
-            messages=m.parse_all(m.parse_message, messages),
-            lucky_number=lucky,
+            messages=messages,
+            lucky_number=await self._fetch_lucky(acc, rest, pid, today),
         )
+
+    async def _fetch_lucky(self, acc: dict, rest: str, pid: int, today) -> int | None:
+        constituent = (acc.get("ConstituentUnit") or {}).get("Id")
+        if constituent is None:
+            return None
+        try:
+            raw = await self.api.lucky_number(rest, pid, constituent, today)
+        except (ApiError, TransportError):
+            return None  # szkoła może nie losować numerka
+        return (raw or {}).get("Number") or None
+
+    async def _fetch_messages(self, rest: str, pid: int, login_id: int, box: str | None) -> list[m.Message]:
+        """Pełne pobranie raz na dobę, poza tym tylko to, co się zmieniło od ostatniego razu.
+
+        Skrzynka bywa na tysiące wiadomości, a przyrost zwraca też te, którym zmienił się
+        ReadAt — licznik nieprzeczytanych nadąża. Scalamy po kluczu wiadomości.
+        """
+        if not box:
+            return []
+        now = dt_util.now()
+        since = self._messages_synced.get(login_id)
+        full = since is None or (now - since) >= MESSAGES_FULL_RESYNC
+        raw = await self.api.messages_received(rest, pid, box, since=None if full else since - MESSAGES_OVERLAP)
+        store = {} if full else dict(self._messages.get(login_id) or {})
+        for msg in m.parse_all(m.parse_message, raw):
+            store[msg.key] = msg
+        self._messages[login_id] = store
+        self._messages_synced[login_id] = now
+        return sorted(store.values(), key=lambda x: (x.sent is not None, x.sent))
 
     def account_for(self, login_id: int) -> dict:
         return next(a for a in self.accounts if a["Pupil"]["LoginId"] == login_id)
@@ -139,6 +173,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
     async def _detect_changes(self, data: dict[int, m.PupilData]) -> None:
         if self._seen is None:
             self._seen = await self._store.async_load() or {}
+        dirty = False
         for login_id, pupil in data.items():
             seen = self._seen.setdefault(str(login_id), {})
             current = {
@@ -156,9 +191,14 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
                     for key, item in keys.items():
                         if key not in known:
                             self._fire(cat, pupil, item)
-                # trzymamy klucze z bieżącego okna + poprzednie (bez puchnięcia)
-                seen[cat] = sorted(set(keys) | set(seen.get(cat, [])[-2000:]))
-        await self._store.async_save(self._seen)
+                # bieżące klucze z przodu, starsze za nimi; przycinamy od końca, więc
+                # z listy wypadają najstarsze, a nie te, które akurat są dalej w alfabecie
+                older = [k for k in seen.get(cat, []) if k not in keys]
+                fresh = (list(keys) + older)[:SEEN_LIMIT]
+                if fresh != seen.get(cat):
+                    seen[cat], dirty = fresh, True
+        if dirty:  # skrzynka potrafi mieć tysiące kluczy — nie przepisujemy pliku co odświeżenie
+            await self._store.async_save(self._seen)
 
     def _fire(self, cat: str, pupil: m.PupilData, item) -> None:
         base = {"pupil": pupil.name, "login_id": pupil.login_id}

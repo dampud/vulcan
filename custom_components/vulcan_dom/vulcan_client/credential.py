@@ -60,8 +60,16 @@ class Credential:
 
     # --- podpis -----------------------------------------------------------
 
+    def _key(self):
+        """Klucz parsowany raz — podpisujemy w pętli zdarzeń HA, DER-a nie ma po co czytać co żądanie."""
+        key = self.__dict__.get("_key_obj")
+        if key is None:
+            key = serialization.load_der_private_key(b64decode(self.private_key), password=None)
+            self.__dict__["_key_obj"] = key
+        return key
+
     def sign(self, headers: dict[str, str], body: str | None) -> dict[str, str]:
-        key = serialization.load_der_private_key(b64decode(self.private_key), password=None)
+        key = self._key()
         names = ["vCanonicalUrl", "vDate"]
         if body is not None:
             digest = b64encode(hashlib.sha256(body.encode()).digest()).decode()

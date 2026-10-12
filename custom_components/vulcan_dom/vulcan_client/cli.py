@@ -4,6 +4,7 @@
   vulcan accounts              uczniowie, szkoła, uprawnienia (Capabilities)
   vulcan fetch RODZAJ          surowy JSON: schedule|exams|homework|grades|notes|lessons|
                                messages|addressbook|lucky|vacations
+  vulcan schema RODZAJ         same pola, typy i maski dat — bez treści
   vulcan send-message ...      podgląd treści; wysyłka dopiero z --send
   vulcan justify ...           podgląd; wysyłka dopiero z --send
   vulcan unregister            wyrejestrowanie urządzenia (z --yes)
@@ -23,6 +24,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from . import schema
 from .api import VulcanApi
 from .auth import ApDataError
 from .auth import parse_ap as _parse_ap
@@ -89,40 +91,65 @@ async def cmd_accounts(args: argparse.Namespace) -> None:
             print(f"    okres bieżący: Id={current[0]['Id']} nr {current[0].get('Number')}")
 
 
-async def cmd_fetch(args: argparse.Namespace) -> None:
+KINDS = ("schedule", "exams", "homework", "grades", "notes", "lessons", "messages", "addressbook",
+         "lucky", "vacations")
+
+
+async def fetch_kind(api: VulcanApi, acc: dict, kind: str, back: int, ahead: int) -> Any:
     today = date.today()
-    d_from = today - timedelta(days=args.back)
-    d_to = today + timedelta(days=args.ahead)
+    d_from = today - timedelta(days=back)
+    d_to = today + timedelta(days=ahead)
+    rest = acc["Unit"]["RestURL"]
+    pid = acc["Pupil"]["Id"]
+    box = (acc.get("MessageBox") or {}).get("GlobalKey")
+    if kind == "schedule":
+        return await api.schedule(rest, pid, d_from, d_to)
+    if kind == "exams":
+        return await api.exams(rest, pid, d_from, d_to)
+    if kind == "homework":
+        return await api.homework(rest, pid, d_from, d_to)
+    if kind == "lessons":
+        return await api.lessons(rest, pid, d_from, d_to)
+    if kind == "vacations":
+        return await api.vacations(rest, pid, d_from, d_to)
+    if kind == "notes":
+        return await api.notes(rest, pid)
+    if kind == "grades":
+        period = next(p for p in acc["Periods"] if p.get("Current"))
+        return await api.grades(rest, pid, acc["Unit"]["Id"], period["Id"])
+    if kind == "lucky":
+        constituent = (acc.get("ConstituentUnit") or {}).get("Id")
+        if constituent is None:
+            raise SystemExit("konto nie ma ConstituentUnit — brak numerka")
+        return await api.lucky_number(rest, pid, constituent, today)
+    if kind in ("messages", "addressbook"):
+        if not box:
+            raise SystemExit("konto nie ma skrzynki wiadomości")
+        return await (api.messages_received if kind == "messages" else api.addressbook)(rest, pid, box)
+    raise SystemExit(f"nieznany rodzaj: {kind} (znane: {', '.join(KINDS)})")
+
+
+async def cmd_fetch(args: argparse.Namespace) -> None:
     async with VulcanApi(Credential.load(args.credential)) as api:
         acc = pick(await api.accounts(), args.pupil)
-        rest = acc["Unit"]["RestURL"]
-        pid = acc["Pupil"]["Id"]
-        box = (acc.get("MessageBox") or {}).get("GlobalKey")
-        kind = args.kind
-        if kind == "schedule":
-            out = await api.schedule(rest, pid, d_from, d_to)
-        elif kind == "exams":
-            out = await api.exams(rest, pid, d_from, d_to)
-        elif kind == "homework":
-            out = await api.homework(rest, pid, d_from, d_to)
-        elif kind == "lessons":
-            out = await api.lessons(rest, pid, d_from, d_to)
-        elif kind == "vacations":
-            out = await api.vacations(rest, pid, d_from, d_to)
-        elif kind == "notes":
-            out = await api.notes(rest, pid)
-        elif kind == "grades":
-            period = next(p for p in acc["Periods"] if p.get("Current"))
-            out = await api.grades(rest, pid, acc["Unit"]["Id"], period["Id"])
-        elif kind == "lucky":
-            out = await api.lucky_number(rest, pid, acc["ConstituentUnit"]["Id"], today)
-        elif kind in ("messages", "addressbook"):
-            if not box:
-                raise SystemExit("konto nie ma skrzynki wiadomości")
-            out = await (api.messages_received if kind == "messages" else api.addressbook)(rest, pid, box)
-        else:
-            raise SystemExit(f"nieznany rodzaj: {kind}")
+        out = await fetch_kind(api, acc, args.kind, args.back, args.ahead)
     dump(out)
+
+
+async def cmd_schema(args: argparse.Namespace) -> None:
+    """Kształt odpowiedzi — pola, typy, maski. Żadnych treści (chyba że --values)."""
+    async with VulcanApi(Credential.load(args.credential)) as api:
+        acc = pick(await api.accounts(), args.pupil)
+        out = await fetch_kind(api, acc, args.kind, args.back, args.ahead)
+    if args.values:
+        counts = schema.values_at(out, args.values)
+        if not counts:
+            raise SystemExit(f"ścieżka {args.values} nic nie zwróciła — sprawdź ją w `vulcan schema {args.kind}`")
+        print(f"{args.kind} → {args.values}")
+        for value, n in counts.most_common():
+            print(f"  {n:>5} × {value}")
+        return
+    print(schema.render(args.kind, out))
 
 
 async def cmd_send_message(args: argparse.Namespace) -> None:
@@ -196,11 +223,20 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("accounts").set_defaults(func=cmd_accounts)
 
     f = sub.add_parser("fetch")
-    f.add_argument("kind")
+    f.add_argument("kind", choices=KINDS)
     f.add_argument("--pupil", type=int)
     f.add_argument("--back", type=int, default=7, help="dni wstecz")
     f.add_argument("--ahead", type=int, default=14, help="dni naprzód")
     f.set_defaults(func=cmd_fetch)
+
+    s = sub.add_parser("schema", help="pola i typy odpowiedzi, bez treści")
+    s.add_argument("kind", choices=KINDS)
+    s.add_argument("--pupil", type=int)
+    s.add_argument("--back", type=int, default=7, help="dni wstecz")
+    s.add_argument("--ahead", type=int, default=14, help="dni naprzód")
+    s.add_argument("--values", metavar="ŚCIEŻKA",
+                   help="rozkład wartości jednej ścieżki, np. '[].PresenceType.Name' (pokazuje treść!)")
+    s.set_defaults(func=cmd_schema)
 
     m = sub.add_parser("send-message")
     m.add_argument("--pupil", type=int)

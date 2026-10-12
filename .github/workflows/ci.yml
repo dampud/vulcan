@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  secrets:
+  sekrety:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,7 +14,9 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  tests:
+
+  # Klient i CLI mają działać na gołym Pythonie — bez Home Assistanta w środowisku.
+  klient:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,4 +24,21 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e ".[dev]"
+      - name: brak zależności od HA
+        run: |
+          python -c "import vulcan_client, vulcan_client.schema, vulcan_client.cli"
+          ! python -c "import homeassistant" 2>/dev/null
+          vulcan --help > /dev/null
+      # --noconftest: conftest testów integracji wymaga HA, którego w tym jobie nie ma
+      - run: pytest --noconftest tests/test_client.py -q
+
+  integracja:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: zależności (HA + harness testowy)
+        run: pip install -e ".[dev,ha]"
       - run: pytest -q
