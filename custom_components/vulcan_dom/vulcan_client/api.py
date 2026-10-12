@@ -21,6 +21,7 @@ from .http import BASE_URL, HttpClient
 EPOCH = datetime(1970, 1, 1, 1, 0, 0)
 INT_MIN = -2_147_483_648
 PAGE = 500
+MAX_PAGES = 40  # bezpiecznik: 40 × 500 = 20 000 rekordów na jedno pobranie
 
 
 def _sync(**params: Any) -> dict[str, Any]:
@@ -76,38 +77,68 @@ class VulcanApi:
     async def _get(self, rest_url: str, endpoint: str, pupil_id: int, **query: Any) -> Any:
         return await self.http.request("GET", endpoint, rest_url, pupil_id=pupil_id, query=query)
 
+    async def _get_paged(self, rest_url: str, endpoint: str, pupil_id: int, **query: Any) -> list[dict]:
+        """Pobiera wszystkie strony.
+
+        Hebe tnie odpowiedź do pageSize i nie mówi, że coś zostało — kolejną stronę
+        bierze się podając `lastId` = największe Id z poprzedniej. Pętla kończy się na
+        krótkiej stronie, na braku nowych rekordów albo na bezpieczniku MAX_PAGES
+        (gdyby serwer ignorował lastId i w kółko oddawał to samo).
+        """
+        page_size = int(query.get("pageSize") or PAGE)
+        last_id = query.get("lastId", INT_MIN)
+        out: list[dict] = []
+        seen: set[Any] = set()
+        for _ in range(MAX_PAGES):
+            page = await self._get(rest_url, endpoint, pupil_id, **{**query, "lastId": last_id})
+            if not isinstance(page, list) or not page:
+                break
+            fresh = [r for r in page if isinstance(r, dict) and r.get("Id") not in seen]
+            if not fresh:
+                break
+            out.extend(fresh)
+            seen.update(r.get("Id") for r in page if isinstance(r, dict))
+            ids = [r["Id"] for r in page if isinstance(r, dict) and isinstance(r.get("Id"), int)]
+            if len(page) < page_size or not ids:
+                break
+            nxt = max(ids)
+            if nxt == last_id:
+                break
+            last_id = nxt
+        return out
+
     async def schedule(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
         """Plan z zastępstwami."""
-        return await self._get(
+        return await self._get_paged(
             rest_url, "mobile/schedule/withchanges/byPupil", pupil_id,
             **_sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
         )
 
     async def exams(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
-        return await self._get(
+        return await self._get_paged(
             rest_url, "mobile/exam/byPupil", pupil_id,
             **_sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
         )
 
     async def homework(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
-        return await self._get(
+        return await self._get_paged(
             rest_url, "mobile/homework/byPupil", pupil_id,
             **_sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
         )
 
     async def grades(self, rest_url: str, pupil_id: int, unit_id: int, period_id: int) -> list[dict]:
-        return await self._get(
+        return await self._get_paged(
             rest_url, "mobile/grade/byPupil", pupil_id,
             **_sync(unitId=unit_id, pupilId=pupil_id, periodId=period_id),
         )
 
     async def notes(self, rest_url: str, pupil_id: int) -> list[dict]:
         """Uwagi i pochwały."""
-        return await self._get(rest_url, "mobile/note/byPupil", pupil_id, **_sync(pupilId=pupil_id))
+        return await self._get_paged(rest_url, "mobile/note/byPupil", pupil_id, **_sync(pupilId=pupil_id))
 
     async def lessons(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
         """Lekcje zrealizowane z frekwencją; źródło LessonClassId do usprawiedliwień."""
-        return await self._get(
+        return await self._get_paged(
             rest_url, "mobile/lesson/byPupil", pupil_id,
             **_sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
         )
@@ -119,18 +150,27 @@ class VulcanApi:
         )
 
     async def vacations(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
-        return await self._get(
+        return await self._get_paged(
             rest_url, "mobile/school/vacation", pupil_id,
             **_sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
         )
 
-    async def messages_received(self, rest_url: str, pupil_id: int, box: str) -> list[dict]:
-        return await self._get(
-            rest_url, "mobile/messages/received/byBox", pupil_id, **_sync(box=box, pupilId=pupil_id)
+    async def messages_received(
+        self, rest_url: str, pupil_id: int, box: str, since: datetime | None = None
+    ) -> list[dict]:
+        """Odebrane wiadomości.
+
+        `since` ogranicza odpowiedź do rekordów zmienionych po tej dacie (czas lokalny
+        szkoły) — skrzynka potrafi mieć tysiące wiadomości i pełne pobieranie co kwadrans
+        nie ma sensu. Bez `since` pobiera całość, stronicując.
+        """
+        return await self._get_paged(
+            rest_url, "mobile/messages/received/byBox", pupil_id,
+            **{**_sync(box=box, pupilId=pupil_id), "lastSyncDate": since or EPOCH},
         )
 
     async def messages_sent(self, rest_url: str, pupil_id: int, box: str) -> list[dict]:
-        return await self._get(
+        return await self._get_paged(
             rest_url, "mobile/messages/sent/byBox", pupil_id, **_sync(box=box, pupilId=pupil_id)
         )
 

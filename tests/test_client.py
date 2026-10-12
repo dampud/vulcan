@@ -163,3 +163,58 @@ def test_justification_payload():
         "PupilId": 1,
         "LoginId": 2,
     }
+
+
+# --- stronicowanie -----------------------------------------------------------
+
+
+async def test_get_paged_sklada_kolejne_strony(cred):
+    session = FakeSession(
+        (200, envelope([{"Id": 1}, {"Id": 2}])),
+        (200, envelope([{"Id": 5}])),
+    )
+    api = VulcanApi(cred, session)
+    out = await api._get_paged(REST, "mobile/x", 1, pageSize=2, lastSyncDate="1970-01-01 01:00:00")
+    assert [r["Id"] for r in out] == [1, 2, 5]
+    assert [c["params"]["lastId"] for c in session.calls] == ["-2147483648", "2"]
+
+
+async def test_get_paged_konczy_sie_gdy_serwer_ignoruje_lastid(cred):
+    strona = envelope([{"Id": 1}, {"Id": 2}])
+    session = FakeSession(*[(200, strona)] * 5)
+    api = VulcanApi(cred, session)
+    out = await api._get_paged(REST, "mobile/x", 1, pageSize=2)
+    assert [r["Id"] for r in out] == [1, 2]
+    assert len(session.calls) == 2  # druga strona bez nowych rekordów kończy pętlę
+
+
+async def test_get_paged_krotka_strona_to_koniec(cred):
+    session = FakeSession((200, envelope([{"Id": 1}])))
+    api = VulcanApi(cred, session)
+    assert len(await api._get_paged(REST, "mobile/x", 1, pageSize=500)) == 1
+    assert len(session.calls) == 1
+
+
+async def test_messages_since_leci_jako_lastsyncdate(cred):
+    from datetime import datetime
+
+    session = FakeSession((200, envelope([])))
+    await VulcanApi(cred, session).messages_received(
+        REST, 7, "box", since=datetime(2026, 10, 12, 6, 0, 0)
+    )
+    assert session.calls[0]["params"]["lastSyncDate"] == "2026-10-12 06:00:00"
+    assert session.calls[0]["params"]["box"] == "box"
+
+
+async def test_messages_bez_since_bierze_calosc(cred):
+    session = FakeSession((200, envelope([])))
+    await VulcanApi(cred, session).messages_received(REST, 7, "box")
+    assert session.calls[0]["params"]["lastSyncDate"] == "1970-01-01 01:00:00"
+
+
+def test_klucz_prywatny_parsowany_raz(cred):
+    cred.sign({"vCanonicalUrl": "x", "vDate": "d"}, None)
+    pierwszy = cred.__dict__["_key_obj"]
+    cred.sign({"vCanonicalUrl": "y", "vDate": "d"}, None)
+    assert cred.__dict__["_key_obj"] is pierwszy
+    assert "_key_obj" not in cred.to_dict()  # cache nie trafia do pliku z kluczem
