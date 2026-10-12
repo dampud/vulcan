@@ -1,0 +1,32 @@
+send_message:
+  fields:
+    pupil:
+      selector: {text: {}}
+    recipient:
+      required: true
+      selector: {text: {}}
+    subject:
+      required: true
+      selector: {text: {}}
+    message:
+      required: true
+      selector: {text: {multiline: true}}
+justify_absence:
+  fields:
+    pupil:
+      selector: {text: {}}
+    date:
+      required: true
+      selector: {date: {}}
+    lessons:
+      selector: {text: {}}
+    reason:
+      required: true
+      selector: {text: {multiline: true}}
+recipients:
+  fields:
+    pupil:
+      selector: {text: {}}
+    search:
+      selector: {text: {}}
+refresh:
