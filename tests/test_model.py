@@ -132,6 +132,56 @@ def test_lesson_change_key_lapie_modyfikacje_zastepstwa():
 def test_new_items_i_window():
     p = pupil()
     znane = {g.key for g in p.grades[:1]}
-    assert [g.key for g in m.new_items(znane, p.grades)] == [p.grades[1].key]
+    assert [g.key for g in m.new_items(znane, p.grades)] == [g.key for g in p.grades[1:]]
     od, do = m.window(dane.DZIS, 1, 14)
     assert (do - od).days == 15
+
+
+# --- oceny -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "content,value,oczekiwane,z_serwera",
+    [
+        ("5", None, 5.0, False),
+        ("5+", None, 5.5, False),
+        ("3-", None, 2.75, False),
+        ("3-", 2.9, 2.9, True),  # liczba z serwera wygrywa z naszą konwencją
+        ("4", 0, 4.0, False),  # zero traktujemy jak brak wartości
+        ("np", None, None, False),
+        ("bz", None, None, False),
+        ("+", None, None, False),
+        ("", None, None, False),
+        (None, None, None, False),
+        ("7", None, None, False),  # poza skalą
+    ],
+)
+def test_grade_to_number(content, value, oczekiwane, z_serwera):
+    assert m.grade_to_number(content, value) == (oczekiwane, z_serwera)
+
+
+def test_weighted_average_wazy_i_pomija_bez_wartosci():
+    p = pupil()
+    mat = p.grades_by_subject()["Matematyka"]
+    # 4 (waga 3) i 5+ = 5,5 (waga 2); "np" bez wartości nie liczy się wcale
+    assert m.weighted_average(mat) == 4.6
+    assert m.weighted_average([]) is None
+
+
+def test_grades_by_subject_grupuje_i_sortuje():
+    p = pupil()
+    po_przedmiocie = p.grades_by_subject()
+    assert list(po_przedmiocie) == ["Biologia", "Matematyka"]
+    assert [g.value for g in po_przedmiocie["Biologia"]] == ["3-", "5"]  # od najstarszej
+
+
+def test_average_po_wszystkich_ocenach():
+    p = pupil()
+    assert p.average() == 4.41
+
+
+def test_parse_grade_zapisuje_zrodlo_wartosci():
+    oceny = m.parse_all(m.parse_grade, dane.GRADES)
+    z_serwera = [g for g in oceny if g.numeric_from_api]
+    assert [g.value for g in z_serwera] == ["3-"]
+    assert [g.value for g in oceny if g.numeric is None] == ["np"]

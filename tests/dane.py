@@ -108,6 +108,22 @@ GRADES = [
      "ModifiedAt": f"{iso(DZIS - timedelta(days=1))} 12:30:00",
      "Column": {"Name": "Odpowiedź", "Code": "odp", "Weight": 1.0, "Subject": {"Name": "Biologia"}},
      "Creator": {"DisplayName": "Ewa Przykładowa"}},
+    # ocena z plusem bez pola Value — wartość liczymy z tekstu (5 + 0,5)
+    {"Id": 33, "Content": "5+", "ContentRaw": "5+", "CreatedAt": f"{iso(DZIS - timedelta(days=4))} 09:00:00",
+     "ModifiedAt": f"{iso(DZIS - timedelta(days=4))} 09:00:00",
+     "Column": {"Name": "Kartkówka", "Code": "kar", "Weight": 2.0, "Subject": {"Name": "Matematyka"}},
+     "Creator": {"DisplayName": "Jan Nowakowy"}},
+    # serwer podaje własną wartość — ma pierwszeństwo przed naszym liczeniem minusa
+    {"Id": 34, "Content": "3-", "ContentRaw": "3-", "Value": 2.9,
+     "CreatedAt": f"{iso(DZIS - timedelta(days=3))} 11:00:00",
+     "ModifiedAt": f"{iso(DZIS - timedelta(days=3))} 11:00:00",
+     "Column": {"Name": "Odpowiedź", "Code": "odp", "Weight": 1.0, "Subject": {"Name": "Biologia"}},
+     "Creator": {"DisplayName": "Ewa Przykładowa"}},
+    # wpis bez wartości liczbowej — widoczny na liście, poza średnią
+    {"Id": 35, "Content": "np", "ContentRaw": "np", "CreatedAt": f"{iso(DZIS - timedelta(days=6))} 08:10:00",
+     "ModifiedAt": f"{iso(DZIS - timedelta(days=6))} 08:10:00",
+     "Column": {"Name": "Nieprzygotowanie", "Code": "np", "Weight": 0.0, "Subject": {"Name": "Matematyka"}},
+     "Creator": {"DisplayName": "Jan Nowakowy"}},
 ]
 
 NOTES = [
