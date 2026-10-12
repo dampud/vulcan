@@ -77,19 +77,25 @@ class VulcanApi:
     async def _get(self, rest_url: str, endpoint: str, pupil_id: int, **query: Any) -> Any:
         return await self.http.request("GET", endpoint, rest_url, pupil_id=pupil_id, query=query)
 
-    async def _get_paged(self, rest_url: str, endpoint: str, pupil_id: int, **query: Any) -> list[dict]:
+    async def _get_paged(
+        self, rest_url: str, endpoint: str, pupil_id: int, max_pages: int | None = None, **query: Any
+    ) -> list[dict]:
         """Pobiera wszystkie strony.
 
         Hebe tnie odpowiedź do pageSize i nie mówi, że coś zostało — kolejną stronę
         bierze się podając `lastId` = największe Id z poprzedniej. Pętla kończy się na
         krótkiej stronie, na braku nowych rekordów albo na bezpieczniku MAX_PAGES
         (gdyby serwer ignorował lastId i w kółko oddawał to samo).
+
+        `max_pages` obniża ten bezpiecznik dla wywołań, które muszą się zmieścić w
+        czasie — każda strona to osobne żądanie z własnym timeoutem, więc domyślne
+        40 stron potrafi w najgorszym razie zająć kwadranse.
         """
         page_size = int(query.get("pageSize") or PAGE)
         last_id = query.get("lastId", INT_MIN)
         out: list[dict] = []
         seen: set[Any] = set()
-        for _ in range(MAX_PAGES):
+        for _ in range(min(max_pages or MAX_PAGES, MAX_PAGES)):
             page = await self._get(rest_url, endpoint, pupil_id, **{**query, "lastId": last_id})
             if not isinstance(page, list) or not page:
                 break
@@ -156,16 +162,23 @@ class VulcanApi:
         )
 
     async def messages_received(
-        self, rest_url: str, pupil_id: int, box: str, since: datetime | None = None
+        self,
+        rest_url: str,
+        pupil_id: int,
+        box: str,
+        since: datetime | None = None,
+        max_pages: int | None = None,
     ) -> list[dict]:
         """Odebrane wiadomości.
 
         `since` ogranicza odpowiedź do rekordów zmienionych po tej dacie (czas lokalny
         szkoły) — skrzynka potrafi mieć tysiące wiadomości i pełne pobieranie co kwadrans
-        nie ma sensu. Bez `since` pobiera całość, stronicując.
+        nie ma sensu. Bez `since` pobiera całość, stronicując; wywołujący powinien wtedy
+        podać `max_pages`, żeby pobranie nie rozciągnęło się w nieskończoność.
         """
         return await self._get_paged(
             rest_url, "mobile/messages/received/byBox", pupil_id,
+            max_pages=max_pages,
             **{**_sync(box=box, pupilId=pupil_id), "lastSyncDate": since or EPOCH},
         )
 

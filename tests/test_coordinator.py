@@ -8,6 +8,7 @@ import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
+from custom_components.vulcan_dom.coordinator import MESSAGES_HISTORY
 from custom_components.vulcan_dom.const import (
     CONF_QUIET_END,
     CONF_QUIET_START,
@@ -106,7 +107,10 @@ async def test_usluga_refresh_lamie_cisze_nocna(hass, entry, setup_entry, frozen
 async def test_drugie_pobranie_wiadomosci_jest_przyrostowe(hass, entry, setup_entry):
     sciezka = "mobile/messages/received/byBox"
     pierwsze = setup_entry.path_calls(sciezka)
-    assert pierwsze[0]["params"]["lastSyncDate"] == "1970-01-01 01:00:00"
+    # pełne pobranie sięga okna historii, nie po całą skrzynkę od epoki
+    assert pierwsze[0]["params"]["lastSyncDate"] != "1970-01-01 01:00:00"
+    assert str(pierwsze[0]["params"]["lastSyncDate"])[:10] == (
+        dane.DZIS - MESSAGES_HISTORY).isoformat()
 
     setup_entry.data[sciezka].append(dane.message(65, "Świeża", read=False, days_ago=0))
     await odswiez(hass, entry)
@@ -122,7 +126,9 @@ async def test_pelne_pobranie_wiadomosci_po_dobie(hass, entry, setup_entry, froz
     sciezka = "mobile/messages/received/byBox"
     frozen_time.move_to(f"{(dane.DZIS + timedelta(days=1)).isoformat()} 10:00:00+02:00")
     await odswiez(hass, entry)
-    assert setup_entry.path_calls(sciezka)[-1]["params"]["lastSyncDate"] == "1970-01-01 01:00:00"
+    # po dobie znowu pełne pobranie, ale liczone od nowego "dziś" minus okno historii
+    assert str(setup_entry.path_calls(sciezka)[-1]["params"]["lastSyncDate"])[:10] == (
+        dane.DZIS + timedelta(days=1) - MESSAGES_HISTORY).isoformat()
 
 
 async def test_odmowa_certyfikatu_prowadzi_do_ponownej_rejestracji(hass, entry, setup_entry):
@@ -161,3 +167,15 @@ async def test_wyladowanie_wpisu(hass, entry, setup_entry):
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.NOT_LOADED
     assert hass.states.get("sensor.ala_testowa_ostatnia_ocena").state == "unavailable"
+
+
+async def test_awaria_skrzynki_nie_zabiera_pozostalych_danych(hass, entry, setup_entry):
+    """Skrzynka jest największa i najwolniejsza — jej błąd nie może wywalić całej integracji."""
+    setup_entry.fail["mobile/messages/received/byBox"] = (502, 0)
+    await odswiez(hass, entry)
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.last_update_success is True
+    uczen = entry.runtime_data.data[dane.LOGIN_ID]
+    assert uczen.lessons and uczen.grades  # plan i oceny żyją mimo padniętej skrzynki
+    assert hass.states.get("sensor.ala_testowa_pierwsza_lekcja_dzis").state not in (
+        "unavailable", "unknown")
