@@ -1,0 +1,13 @@
+{
+  "domain": "vulcan_dom",
+  "name": "eduVULCAN (nieoficjalna)",
+  "codeowners": ["@dampud"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/dampud/vulcan",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/dampud/vulcan/issues",
+  "requirements": [],
+  "version": "0.2.0"
+}

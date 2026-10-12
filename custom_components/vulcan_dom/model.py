@@ -1,0 +1,313 @@
+"""Normalizacja surowych odpowiedzi API do prostych struktur dla HA.
+
+Bez importów Home Assistanta — testowalne samodzielnie. Pola wejściowe wg
+modeli iris (PascalCase). Parsowanie dat jest defensywne: API zwraca daty
+jako tekst ISO ("2026-10-12", "2026-10-12 08:00:00"), ale stare wersje
+zwracały obiekty {"Date": ..., "Time": ...}.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("Europe/Warsaw")
+
+
+# --- daty ------------------------------------------------------------------
+
+
+def to_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        value = value.get("Date") or value.get("date")
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def to_time(value: Any) -> time | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        value = value.get("Time") or value.get("time")
+    try:
+        return time.fromisoformat(str(value)[:8] if len(str(value)) >= 8 else str(value))
+    except ValueError:
+        return None
+
+
+def to_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        d, t = to_date(value), to_time(value)
+        return datetime.combine(d, t or time(0), TZ) if d else None
+    try:
+        dt = datetime.fromisoformat(str(value).replace(" ", "T"))
+    except ValueError:
+        d = to_date(value)
+        return datetime.combine(d, time(0), TZ) if d else None
+    return dt if dt.tzinfo else dt.replace(tzinfo=TZ)
+
+
+def _name(obj: Any, key: str = "Name") -> str | None:
+    return obj.get(key) if isinstance(obj, dict) else None
+
+
+def _teacher(obj: Any) -> str | None:
+    if not isinstance(obj, dict):
+        return None
+    return obj.get("DisplayName") or " ".join(filter(None, [obj.get("Name"), obj.get("Surname")])) or None
+
+
+# --- struktury ---------------------------------------------------------------
+
+
+@dataclass
+class Lesson:
+    key: str
+    day: date
+    start: datetime
+    end: datetime
+    position: int | None
+    subject: str
+    teacher: str | None
+    room: str | None
+    group: str | None
+    changed: bool = False
+    cancelled: bool = False
+    change_note: str | None = None
+
+
+@dataclass
+class Exam:
+    key: str
+    day: date
+    subject: str
+    kind: str
+    content: str
+    teacher: str | None
+
+
+@dataclass
+class Homework:
+    key: str
+    day: date
+    subject: str
+    content: str
+    teacher: str | None
+
+
+@dataclass
+class Grade:
+    key: str
+    value: str
+    subject: str
+    column: str | None
+    weight: float | None
+    teacher: str | None
+    created: datetime | None
+    modified: datetime | None
+
+
+@dataclass
+class Note:
+    key: str
+    day: date | None
+    positive: bool
+    category: str | None
+    content: str
+    teacher: str | None
+
+
+@dataclass
+class Message:
+    key: str
+    thread_key: str | None
+    subject: str
+    sender: str | None
+    sent: datetime | None
+    read: bool
+    content: str
+
+
+@dataclass
+class PupilData:
+    pupil_id: int
+    login_id: int
+    name: str
+    lessons: list[Lesson] = field(default_factory=list)
+    exams: list[Exam] = field(default_factory=list)
+    homework: list[Homework] = field(default_factory=list)
+    grades: list[Grade] = field(default_factory=list)
+    notes: list[Note] = field(default_factory=list)
+    messages: list[Message] = field(default_factory=list)
+    lucky_number: int | None = None
+
+    # --- widoki dla encji ---
+
+    def lessons_on(self, day: date) -> list[Lesson]:
+        return sorted((l for l in self.lessons if l.day == day and not l.cancelled), key=lambda l: l.start)
+
+    def first_lesson(self, day: date) -> Lesson | None:
+        lessons = self.lessons_on(day)
+        return lessons[0] if lessons else None
+
+    def next_school_day(self, after: date) -> date | None:
+        days = sorted({l.day for l in self.lessons if l.day > after and not l.cancelled})
+        return days[0] if days else None
+
+    def upcoming_exams(self, today: date) -> list[Exam]:
+        return sorted((e for e in self.exams if e.day >= today), key=lambda e: e.day)
+
+    def changes_between(self, start: date, end: date) -> list[Lesson]:
+        return sorted(
+            (l for l in self.lessons if start <= l.day <= end and (l.changed or l.cancelled)),
+            key=lambda l: l.start,
+        )
+
+    @property
+    def unread_messages(self) -> int:
+        return sum(1 for m in self.messages if not m.read)
+
+    def latest_grade(self) -> Grade | None:
+        dated = [g for g in self.grades if g.created]
+        return max(dated, key=lambda g: g.created) if dated else None
+
+
+# --- parsery -----------------------------------------------------------------
+
+
+def parse_lesson(raw: dict) -> Lesson | None:
+    sub = raw.get("Substitution") or None
+    slot = (sub or {}).get("TimeSlot") or raw.get("TimeSlot") or {}
+    day = to_date((sub or {}).get("ChangeDateAt")) or to_date(raw.get("DateAt"))
+    start_t, end_t = to_time(slot.get("Start")), to_time(slot.get("End"))
+    if not day or not start_t or not end_t:
+        return None
+    subject = _name((sub or {}).get("Subject")) or _name(raw.get("Subject")) or raw.get("Event") or "Zajęcia"
+    teacher = _teacher((sub or {}).get("TeacherPrimary")) or _teacher(raw.get("TeacherPrimary"))
+    room = _name((sub or {}).get("Room"), "Code") or _name(raw.get("Room"), "Code")
+    group = _name(raw.get("Distribution"))
+    cancelled = False
+    note = None
+    if sub:
+        # Do weryfikacji na realnych danych: odwołanie = brak przedmiotu i nauczyciela
+        # w zastępstwie albo ClassAbsence (nieobecność klasy).
+        cancelled = bool(sub.get("ClassAbsence")) or (not sub.get("Subject") and not sub.get("TeacherPrimary"))
+        note = "; ".join(
+            filter(None, [sub.get("PupilNote"), sub.get("Reason"), sub.get("TeacherAbsenceEffectName"), sub.get("Description")])
+        ) or None
+    return Lesson(
+        key=f"L{raw.get('Id')}-{day.isoformat()}",
+        day=day,
+        start=datetime.combine(day, start_t, TZ),
+        end=datetime.combine(day, end_t, TZ),
+        position=slot.get("Position"),
+        subject=subject,
+        teacher=teacher,
+        room=room,
+        group=group,
+        changed=sub is not None,
+        cancelled=cancelled,
+        change_note=note,
+    )
+
+
+def parse_exam(raw: dict) -> Exam | None:
+    day = to_date(raw.get("DeadlineAt"))
+    if not day:
+        return None
+    return Exam(
+        key=f"E{raw.get('Id')}",
+        day=day,
+        subject=_name(raw.get("Subject")) or "?",
+        kind=raw.get("Type") or "sprawdzian",
+        content=raw.get("Content") or "",
+        teacher=_teacher(raw.get("Creator")),
+    )
+
+
+def parse_homework(raw: dict) -> Homework | None:
+    day = to_date(raw.get("DeadlineAt")) or to_date(raw.get("DateAt"))
+    if not day:
+        return None
+    return Homework(
+        key=f"H{raw.get('Id')}",
+        day=day,
+        subject=_name(raw.get("Subject")) or "?",
+        content=raw.get("Content") or "",
+        teacher=_teacher(raw.get("Creator")),
+    )
+
+
+def parse_grade(raw: dict) -> Grade:
+    column = raw.get("Column") or {}
+    return Grade(
+        key=f"G{raw.get('Id')}",
+        value=raw.get("Content") or raw.get("ContentRaw") or "",
+        subject=_name(column.get("Subject")) or "?",
+        column=column.get("Name") or column.get("Code"),
+        weight=column.get("Weight"),
+        teacher=_teacher(raw.get("Creator")),
+        created=to_datetime(raw.get("CreatedAt")),
+        modified=to_datetime(raw.get("ModifiedAt")),
+    )
+
+
+def parse_note(raw: dict) -> Note:
+    return Note(
+        key=f"N{raw.get('Id')}",
+        day=to_date(raw.get("ValidAt")),
+        positive=bool(raw.get("Positive")),
+        category=_name(raw.get("Category")),
+        content=raw.get("Content") or "",
+        teacher=_teacher(raw.get("Creator")),
+    )
+
+
+def parse_message(raw: dict) -> Message:
+    return Message(
+        key=str(raw.get("GlobalKey") or raw.get("Id")),
+        thread_key=raw.get("ThreadKey"),
+        subject=raw.get("Subject") or "",
+        sender=_name(raw.get("Sender")),
+        sent=to_datetime(raw.get("SentAt")),
+        read=raw.get("ReadAt") is not None,
+        content=raw.get("Content") or "",
+    )
+
+
+def parse_all(parser, items: list | None) -> list:
+    out = []
+    for item in items or []:
+        if isinstance(item, dict):
+            parsed = parser(item)
+            if parsed is not None:
+                out.append(parsed)
+    return out
+
+
+# --- wykrywanie nowości -------------------------------------------------------
+
+
+def new_items(previous: set[str], items: list, key=lambda x: x.key) -> list:
+    return [i for i in items if key(i) not in previous]
+
+
+def lesson_change_key(lesson: Lesson) -> str:
+    """Klucz zmiany w planie — nowe zastępstwo albo jego modyfikacja."""
+    return f"{lesson.key}|{lesson.cancelled}|{lesson.subject}|{lesson.teacher}|{lesson.room}"
+
+
+def window(today: date, back: int, ahead: int) -> tuple[date, date]:
+    return today - timedelta(days=back), today + timedelta(days=ahead)
