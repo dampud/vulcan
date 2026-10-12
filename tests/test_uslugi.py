@@ -1,0 +1,110 @@
+"""Usługi: adresaci, wysyłka wiadomości, usprawiedliwienie, limit dobowy.
+
+Zapisy idą przez atrapę sieci — żadne żądanie nie opuszcza testu.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+import pytest
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
+from custom_components.vulcan_dom.const import CONF_WRITE_LIMIT, DOMAIN
+
+from . import dane
+
+WYSLIJ = "mobile/messages"
+USPRAWIEDLIW = "mobile/presence/justification/lesson"
+
+
+async def wywolaj(hass, usluga: str, dane_: dict, odpowiedz: bool = True):
+    return await hass.services.async_call(DOMAIN, usluga, dane_, blocking=True, return_response=odpowiedz)
+
+
+async def test_uslugi_sa_zarejestrowane(hass, setup_entry):
+    for usluga in ("send_message", "justify_absence", "recipients", "refresh"):
+        assert hass.services.has_service(DOMAIN, usluga)
+
+
+async def test_lista_adresatow(hass, setup_entry):
+    out = await wywolaj(hass, "recipients", {})
+    assert out["recipients"] == ["Ewa Przykładowa", "Jan Nowakowy", "Maria Polonistka"]
+    out = await wywolaj(hass, "recipients", {"search": "polon"})
+    assert out["recipients"] == ["Maria Polonistka"]
+
+
+async def test_wyslanie_wiadomosci_sklada_poprawna_koperte(hass, setup_entry):
+    out = await wywolaj(hass, "send_message", {
+        "recipient": "Nowakowy", "subject": "Zwolnienie", "message": "Ala będzie nieobecna w piątek.",
+    })
+    assert out == {"sent_to": "Jan Nowakowy"}
+    koperty = setup_entry.bodies(WYSLIJ)
+    assert len(koperty) == 1
+    wyslane = koperty[0]
+    assert wyslane["Subject"] == "Zwolnienie"
+    assert wyslane["Content"] == "Ala będzie nieobecna w piątek."
+    assert wyslane["Sender"] == {"GlobalKey": dane.BOX, "Name": "Rodzic Testowy"}
+    assert wyslane["Receiver"] == [{"GlobalKey": "t-1", "Name": "Jan Nowakowy"}]
+
+
+async def test_niejednoznaczny_adresat_nie_wysyla(hass, setup_entry):
+    with pytest.raises(ServiceValidationError):
+        await wywolaj(hass, "send_message", {"recipient": "a", "subject": "T", "message": "x"})
+    assert setup_entry.path_calls(WYSLIJ) == []
+
+
+async def test_nieznany_adresat_nie_wysyla(hass, setup_entry):
+    with pytest.raises(ServiceValidationError):
+        await wywolaj(hass, "send_message", {"recipient": "Nikt Taki", "subject": "T", "message": "x"})
+    assert setup_entry.path_calls(WYSLIJ) == []
+
+
+async def test_blad_serwera_przy_wysylce(hass, setup_entry):
+    setup_entry.fail[WYSLIJ] = (200, 214)
+    with pytest.raises(HomeAssistantError):
+        await wywolaj(hass, "send_message", {"recipient": "Nowakowy", "subject": "T", "message": "x"})
+
+
+async def test_limit_dobowy_zatrzymuje_petle(hass, entry, setup_entry):
+    hass.config_entries.async_update_entry(entry, options={CONF_WRITE_LIMIT: 2})
+    await hass.async_block_till_done()
+    for i in range(2):
+        await wywolaj(hass, "send_message", {"recipient": "Nowakowy", "subject": f"T{i}", "message": "x"})
+    with pytest.raises(ServiceValidationError):
+        await wywolaj(hass, "send_message", {"recipient": "Nowakowy", "subject": "T3", "message": "x"})
+    assert len(setup_entry.path_calls(WYSLIJ)) == 2
+
+
+async def test_usprawiedliwienie_bierze_tylko_nieusprawiedliwione(hass, setup_entry):
+    wczoraj = (dane.DZIS - timedelta(days=1)).isoformat()
+    out = await wywolaj(hass, "justify_absence", {"date": wczoraj, "reason": "Choroba"})
+    assert out["lessons"] == [1, 2]  # lekcja 3 była obecnością
+    koperty = setup_entry.bodies(USPRAWIEDLIW)
+    assert [k["LessonClassId"] for k in koperty] == [701, 702]
+    assert all(k["Reason"] == "Choroba" for k in koperty)
+    assert all(k["PupilId"] == dane.PUPIL_ID and k["LoginId"] == dane.LOGIN_ID for k in koperty)
+
+
+async def test_usprawiedliwienie_wskazanych_lekcji(hass, setup_entry):
+    wczoraj = (dane.DZIS - timedelta(days=1)).isoformat()
+    out = await wywolaj(hass, "justify_absence", {"date": wczoraj, "reason": "Wizyta", "lessons": [2]})
+    assert out["lessons"] == [2]
+    assert [k["LessonClassId"] for k in setup_entry.bodies(USPRAWIEDLIW)] == [702]
+
+
+async def test_dzien_bez_nieobecnosci_nie_wysyla_nic(hass, setup_entry):
+    with pytest.raises(ServiceValidationError):
+        await wywolaj(hass, "justify_absence", {"date": dane.DZIS.isoformat(), "reason": "Choroba"})
+    assert setup_entry.path_calls(USPRAWIEDLIW) == []
+
+
+async def test_zbyt_krotki_powod_odrzucony(hass, setup_entry):
+    with pytest.raises(Exception):
+        await wywolaj(hass, "justify_absence", {"date": dane.DZIS.isoformat(), "reason": "x"})
+    assert setup_entry.path_calls(USPRAWIEDLIW) == []
+
+
+async def test_nieznany_uczen(hass, setup_entry):
+    with pytest.raises(ServiceValidationError):
+        await wywolaj(hass, "recipients", {"pupil": "Kazimierz"})

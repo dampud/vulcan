@@ -104,9 +104,11 @@ class VulcanConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 def _num(minimum: int, maximum: int, unit: str | None = None) -> NumberSelector:
-    return NumberSelector(
-        NumberSelectorConfig(min=minimum, max=maximum, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement=unit)
-    )
+    # unit_of_measurement musi być tekstem albo w ogóle go nie być — None wywraca selektor
+    config = {"min": minimum, "max": maximum, "step": 1, "mode": NumberSelectorMode.BOX}
+    if unit:
+        config["unit_of_measurement"] = unit
+    return NumberSelector(NumberSelectorConfig(**config))
 
 
 class VulcanOptionsFlow(OptionsFlow):
