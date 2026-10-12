@@ -1,0 +1,15 @@
+# sekrety i dane — NIGDY do repo
+credential*.json
+*.credential.json
+ap*.json
+/data/
+/dumps/
+*.pem
+.env
+# python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+dist/
+build/
