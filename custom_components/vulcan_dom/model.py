@@ -8,12 +8,21 @@ zwracały obiekty {"Date": ..., "Time": ...}.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Warsaw")
+EPOCH = datetime(1970, 1, 1, tzinfo=TZ)
+
+# Ocena bez wartości z serwera: ile dokłada plus, ile zabiera minus. Szkoła
+# konfiguruje to po swojemu, więc liczymy tak tylko wtedy, gdy API nie poda
+# gotowej liczby — patrz grade_to_number().
+GRADE_PLUS = 0.5
+GRADE_MINUS = -0.25
+GRADE_RE = re.compile(r"^\s*([1-6])\s*([+-])?\s*$")
 
 
 # --- daty ------------------------------------------------------------------
@@ -61,6 +70,39 @@ def to_datetime(value: Any) -> datetime | None:
 
 def _name(obj: Any, key: str = "Name") -> str | None:
     return obj.get(key) if isinstance(obj, dict) else None
+
+
+# --- oceny -------------------------------------------------------------------
+
+
+def grade_to_number(content: Any, value: Any = None) -> tuple[float | None, bool]:
+    """Liczbowa wartość oceny i skąd pochodzi.
+
+    Pierwszeństwo ma liczba z serwera (pole `Value`), bo to szkoła ustala, ile
+    wart jest plus i minus — zgadywanie dawałoby średnie rozjeżdżające się z tym,
+    co widać w dzienniku. Dopiero gdy serwer jej nie poda, czytamy sam tekst
+    oceny. Wpisy bez wartości liczbowej ("np", "bz", "+", "-") zwracają None i
+    nie wchodzą do średniej.
+    """
+    if isinstance(value, bool):
+        value = None
+    if isinstance(value, (int, float)) and value > 0:
+        return float(value), True
+    match = GRADE_RE.match(str(content or ""))
+    if not match:
+        return None, False
+    base = float(match.group(1))
+    sign = match.group(2)
+    return base + (GRADE_PLUS if sign == "+" else GRADE_MINUS if sign == "-" else 0.0), False
+
+
+def weighted_average(grades: list["Grade"]) -> float | None:
+    """Średnia ważona ocen mających wartość liczbową; brak wagi liczymy jako 1."""
+    pairs = [(g.numeric, g.weight if g.weight and g.weight > 0 else 1.0) for g in grades if g.numeric is not None]
+    total = sum(w for _, w in pairs)
+    if not pairs or not total:
+        return None
+    return round(sum(v * w for v, w in pairs) / total, 2)
 
 
 def _teacher(obj: Any) -> str | None:
@@ -117,6 +159,10 @@ class Grade:
     teacher: str | None
     created: datetime | None
     modified: datetime | None
+    numeric: float | None = None
+    # True = liczbę podał serwer (pole Value), False = policzyliśmy z tekstu oceny.
+    # Diagnostyka: pokazuje, czy średnie opierają się na konwencji szkoły, czy naszej.
+    numeric_from_api: bool = False
 
 
 @dataclass
@@ -182,6 +228,17 @@ class PupilData:
     def latest_grade(self) -> Grade | None:
         dated = [g for g in self.grades if g.created]
         return max(dated, key=lambda g: g.created) if dated else None
+
+    def grades_by_subject(self) -> dict[str, list[Grade]]:
+        """Oceny pogrupowane po przedmiocie: przedmioty alfabetycznie, oceny od najstarszej."""
+        out: dict[str, list[Grade]] = {}
+        for grade in sorted(self.grades, key=lambda g: (g.created is not None, g.created or EPOCH)):
+            out.setdefault(grade.subject, []).append(grade)
+        return dict(sorted(out.items()))
+
+    def average(self) -> float | None:
+        """Średnia ważona ze wszystkich ocen — orientacyjna, nie jest to średnia ocen rocznych."""
+        return weighted_average(self.grades)
 
 
 # --- parsery -----------------------------------------------------------------
@@ -252,15 +309,19 @@ def parse_homework(raw: dict) -> Homework | None:
 
 def parse_grade(raw: dict) -> Grade:
     column = raw.get("Column") or {}
+    content = raw.get("Content") or raw.get("ContentRaw") or ""
+    numeric, from_api = grade_to_number(content, raw.get("Value"))
     return Grade(
         key=f"G{raw.get('Id')}",
-        value=raw.get("Content") or raw.get("ContentRaw") or "",
+        value=content,
         subject=_name(column.get("Subject")) or "?",
         column=column.get("Name") or column.get("Code"),
         weight=column.get("Weight"),
         teacher=_teacher(raw.get("Creator")),
         created=to_datetime(raw.get("CreatedAt")),
         modified=to_datetime(raw.get("ModifiedAt")),
+        numeric=numeric,
+        numeric_from_api=from_api,
     )
 
 

@@ -37,7 +37,7 @@ async def test_pierwsze_pobranie_nie_wysyla_zdarzen(hass, entry, setup_entry, zd
 
 async def test_nowa_ocena_daje_zdarzenie(hass, entry, setup_entry, zdarzenia):
     setup_entry.data["mobile/grade/byPupil"].append({
-        "Id": 33, "Content": "6", "CreatedAt": f"{dane.DZIS.isoformat()} 09:00:00",
+        "Id": 39, "Content": "6", "CreatedAt": f"{dane.DZIS.isoformat()} 09:00:00",
         "Column": {"Name": "Aktywność", "Weight": 1.0, "Subject": {"Name": "Fizyka"}},
         "Creator": {"DisplayName": "Karol Fizyk"},
     })
