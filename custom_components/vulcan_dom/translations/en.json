@@ -1,0 +1,154 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "eduVULCAN",
+        "description": "1. Zaloguj się kontem rodzica na eduvulcan.pl.\n2. Otwórz https://eduvulcan.pl/api/ap.\n3. W konsoli przeglądarki (F12): `copy(document.querySelector('#ap').value)`.\n4. Wklej tutaj zawartość schowka.\n\nHome Assistant zarejestruje się jako osobne urządzenie. Dane z tego pola nie są zapisywane.",
+        "data": {
+          "ap_json": "Dane z eduvulcan.pl/api/ap"
+        }
+      },
+      "reauth_confirm": {
+        "title": "eduVULCAN — ponowna rejestracja",
+        "description": "eduVULCAN odrzucił urządzenie. Wklej świeże dane z https://eduvulcan.pl/api/ap (jak przy pierwszej konfiguracji).",
+        "data": {
+          "ap_json": "Dane z eduvulcan.pl/api/ap"
+        }
+      }
+    },
+    "error": {
+      "invalid_ap": "To nie są poprawne dane z eduvulcan.pl/api/ap (albo zgody nie są zaakceptowane).",
+      "multiple_units": "Konto ma uczniów w kilku jednostkach — jeszcze nieobsługiwane.",
+      "rejected": "eduVULCAN odrzucił rejestrację. Pobierz świeże dane i spróbuj ponownie.",
+      "cannot_connect": "Brak połączenia z eduVULCAN.",
+      "no_pupils": "Na koncie nie ma uczniów."
+    },
+    "abort": {
+      "already_configured": "To konto jest już skonfigurowane.",
+      "reauth_successful": "Ponowna rejestracja udana.",
+      "wrong_account": "Dane pochodzą z innego konta niż ten wpis."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ustawienia eduVULCAN",
+        "data": {
+          "scan_interval": "Odpytywanie co (min)",
+          "quiet_start": "Cisza nocna od godziny",
+          "quiet_end": "Cisza nocna do godziny",
+          "write_limit": "Limit wysłanych wiadomości/usprawiedliwień na dobę"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "first_lesson_today": {
+        "name": "Pierwsza lekcja dziś"
+      },
+      "first_lesson_tomorrow": {
+        "name": "Pierwsza lekcja jutro"
+      },
+      "first_lesson_next_day": {
+        "name": "Pierwsza lekcja następnego dnia nauki"
+      },
+      "next_exam": {
+        "name": "Najbliższy sprawdzian"
+      },
+      "exams_7_days": {
+        "name": "Sprawdziany w 7 dni"
+      },
+      "schedule_changes": {
+        "name": "Zmiany w planie (7 dni)"
+      },
+      "last_grade": {
+        "name": "Ostatnia ocena"
+      },
+      "unread_messages": {
+        "name": "Nieprzeczytane wiadomości"
+      },
+      "notes": {
+        "name": "Uwagi"
+      },
+      "lucky_number": {
+        "name": "Szczęśliwy numerek"
+      },
+      "last_sync": {
+        "name": "Ostatnia synchronizacja"
+      }
+    },
+    "calendar": {
+      "lessons": {
+        "name": "Plan lekcji"
+      },
+      "duties": {
+        "name": "Sprawdziany i zadania"
+      }
+    }
+  },
+  "services": {
+    "send_message": {
+      "name": "Wyślij wiadomość",
+      "description": "Wysyła wiadomość w eduVULCAN (wymaga usługi rozszerzonej). Działa natychmiast — używaj z potwierdzeniem.",
+      "fields": {
+        "pupil": {
+          "name": "Uczeń",
+          "description": "Fragment imienia/nazwiska; puste, gdy jeden uczeń."
+        },
+        "recipient": {
+          "name": "Adresat",
+          "description": "Fragment nazwy z książki adresowej; musi wskazać dokładnie jedną osobę."
+        },
+        "subject": {
+          "name": "Temat",
+          "description": "Temat wiadomości."
+        },
+        "message": {
+          "name": "Treść",
+          "description": "Treść wiadomości."
+        }
+      }
+    },
+    "justify_absence": {
+      "name": "Usprawiedliw nieobecność",
+      "description": "Wysyła usprawiedliwienie dla nieobecności w danym dniu (wymaga usługi rozszerzonej).",
+      "fields": {
+        "pupil": {
+          "name": "Uczeń",
+          "description": "Fragment imienia/nazwiska; puste, gdy jeden uczeń."
+        },
+        "date": {
+          "name": "Dzień",
+          "description": "Dzień nieobecności."
+        },
+        "lessons": {
+          "name": "Lekcje",
+          "description": "Numery lekcji; puste = wszystkie nieusprawiedliwione nieobecności tego dnia."
+        },
+        "reason": {
+          "name": "Powód",
+          "description": "Treść usprawiedliwienia."
+        }
+      }
+    },
+    "recipients": {
+      "name": "Lista adresatów",
+      "description": "Zwraca adresatów z książki adresowej.",
+      "fields": {
+        "pupil": {
+          "name": "Uczeń",
+          "description": "Fragment imienia/nazwiska; puste, gdy jeden uczeń."
+        },
+        "search": {
+          "name": "Szukaj",
+          "description": "Fragment nazwy."
+        }
+      }
+    },
+    "refresh": {
+      "name": "Odśwież",
+      "description": "Pobiera dane z eduVULCAN teraz (także w ciszy nocnej)."
+    }
+  }
+}

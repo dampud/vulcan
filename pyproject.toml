@@ -13,12 +13,16 @@ dependencies = ["aiohttp>=3.9", "cryptography>=42"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+ha = ["pytest-homeassistant-custom-component==0.13.316"]
 
 [project.scripts]
 vulcan = "vulcan_client.cli:main"
 
 [tool.setuptools]
 packages = ["vulcan_client"]
+package-dir = {"vulcan_client" = "custom_components/vulcan_dom/vulcan_client"}
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
