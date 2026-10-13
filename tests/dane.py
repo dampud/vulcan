@@ -173,6 +173,24 @@ LESSONS = [
      "TimeSlot": slot(3, "09:50:00", "10:35:00"), "Subject": {"Name": "Historia"},
      "PresenceType": {"Id": 2, "Name": "Obecność", "Absence": False, "AbsenceJustified": False,
                       "Symbol": "", "CategoryId": 1}},
+    # nieobecność już usprawiedliwiona — nie może trafić na listę do usprawiedliwienia
+    {"Id": 74, "LessonClassId": 704, "DateAt": iso(DZIS - timedelta(days=2)),
+     "TimeSlot": slot(1, "08:00:00", "08:45:00"), "Subject": {"Name": "Polski"},
+     "PresenceType": {"Id": 3, "Name": "Nieobecność usprawiedliwiona", "Absence": True,
+                      "AbsenceJustified": True, "Symbol": "u", "CategoryId": 3}},
+    # spóźnienie nieusprawiedliwione — też da się usprawiedliwić
+    {"Id": 75, "LessonClassId": 705, "DateAt": iso(DZIS - timedelta(days=2)),
+     "TimeSlot": slot(2, "08:55:00", "09:40:00"), "Subject": {"Name": "Biologia"},
+     "PresenceType": {"Id": 4, "Name": "Spóźnienie", "Absence": False, "AbsenceJustified": False,
+                      "Late": True, "LateExcused": False, "Symbol": "s", "CategoryId": 4}},
+    # szkoła bez kompletu flag — klasyfikacja musi wyjść z samej nazwy
+    {"Id": 76, "LessonClassId": 706, "DateAt": iso(DZIS - timedelta(days=3)),
+     "TimeSlot": slot(1, "08:00:00", "08:45:00"), "Subject": {"Name": "Chemia"},
+     "PresenceType": {"Id": 5, "Name": "Nieobecność nieusprawiedliwiona", "Symbol": "nn"}},
+    # brak wpisu frekwencji = obecny, nie ma czego usprawiedliwiać
+    {"Id": 77, "LessonClassId": 707, "DateAt": iso(DZIS - timedelta(days=3)),
+     "TimeSlot": slot(2, "08:55:00", "09:40:00"), "Subject": {"Name": "WF"},
+     "PresenceType": None},
 ]
 
 

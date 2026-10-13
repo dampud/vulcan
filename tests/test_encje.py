@@ -20,6 +20,7 @@ SPRAWDZIANY_7 = "sensor.ala_testowa_sprawdziany_w_7_dni"
 ZMIANY = "sensor.ala_testowa_zmiany_w_planie_7_dni"
 OCENA = "sensor.ala_testowa_ostatnia_ocena"
 OCENY = "sensor.ala_testowa_oceny"
+FREKWENCJA = "sensor.ala_testowa_do_usprawiedliwienia"
 WIADOMOSCI = "sensor.ala_testowa_nieprzeczytane_wiadomosci"
 UWAGI = "sensor.ala_testowa_uwagi"
 NUMEREK = "sensor.ala_testowa_szczesliwy_numerek"
@@ -133,7 +134,7 @@ async def test_jedno_urzadzenie_na_ucznia(hass, entry, setup_entry):
     assert device.model == "klasa 5a"
     entities = er.async_get(hass)
     nasze = er.async_entries_for_device(entities, device.id, include_disabled_entities=True)
-    assert len(nasze) == 14  # 12 sensorów + 2 kalendarze
+    assert len(nasze) == 15  # 13 sensorów + 2 kalendarze
     assert all(e.config_entry_id == entry.entry_id for e in nasze)
 
 
@@ -154,3 +155,18 @@ async def test_sensor_ocen_srednie_i_podzial_na_przedmioty(hass, setup_entry):
     assert [o["ocena"] for o in oceny] == ["np", "4", "5+"]
     assert [o["waga"] for o in oceny] == [0.0, 3.0, 2.0]
     assert oceny[0]["wartosc"] is None and oceny[2]["wartosc"] == 5.5
+
+
+async def test_sensor_frekwencji_pokazuje_co_do_usprawiedliwienia(hass, setup_entry):
+    stan = hass.states.get(FREKWENCJA)
+    assert stan.state == "4"  # 3 nieobecności nieusprawiedliwione + 1 spóźnienie
+    assert stan.attributes["nieobecnosci"] == 3
+    assert stan.attributes["spoznienia"] == 1
+    assert stan.attributes["frekwencja_procent"] == 33.3
+
+    lista = stan.attributes["do_usprawiedliwienia"]
+    assert [w["przedmiot"] for w in lista] == ["Chemia", "Biologia", "Matematyka", "Biologia"]
+
+    # słownik typów tej szkoły — do sprawdzenia, czy mapowanie flag trafia w realne dane
+    assert "Obecność" in stan.attributes["rodzaje"]
+    assert "Nieobecność usprawiedliwiona" in stan.attributes["rodzaje"]
