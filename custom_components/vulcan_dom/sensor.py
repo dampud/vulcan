@@ -60,6 +60,25 @@ def _changes(p: m.PupilData) -> list[m.Lesson]:
     return p.changes_between(_today(), _today() + timedelta(days=7))
 
 
+def _att_entry(a: m.Attendance) -> dict[str, Any]:
+    return {"data": a.day.isoformat(), "lekcja": a.position, "przedmiot": a.subject,
+            "rodzaj": a.kind, "spoznienie": a.late}
+
+
+def _attendance_attrs(p: m.PupilData) -> dict[str, Any]:
+    czeka = p.to_justify()
+    return {
+        "do_usprawiedliwienia": [_att_entry(a) for a in czeka[:MAX_LIST]],
+        "spoznienia": sum(1 for a in czeka if a.late),
+        "nieobecnosci": sum(1 for a in czeka if a.absent),
+        "frekwencja_procent": p.attendance_ratio(),
+        "lekcji_w_oknie": len(p.attendance),
+        # słownik typów obecności tej szkoły — same nazwy kategorii, bez treści dziennika.
+        # Pozwala sprawdzić, czy defensywne mapowanie flag trafia w realne dane.
+        "rodzaje": sorted({a.kind for a in p.attendance if a.kind}),
+    }
+
+
 def _grade_entry(g: m.Grade) -> dict[str, Any]:
     return {
         "ocena": g.value,
@@ -142,6 +161,12 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
         key="grades", state_class=SensorStateClass.MEASUREMENT,
         value=lambda p: p.average(),
         attrs=_grades_attrs,
+    ),
+    VulcanSensorDescription(
+        key="attendance_to_justify", native_unit_of_measurement="szt.",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda p: len(p.to_justify()),
+        attrs=_attendance_attrs,
     ),
     VulcanSensorDescription(
         key="unread_messages", native_unit_of_measurement="szt.",
