@@ -37,6 +37,12 @@ SCHEMA_JUSTIFY = vol.Schema({
     vol.Required("reason"): vol.All(cv.string, vol.Length(min=3, max=500)),
 })
 SCHEMA_RECIPIENTS = vol.Schema({**BASE_SCHEMA, vol.Optional("search"): cv.string})
+SCHEMA_READ_MESSAGES = vol.Schema({
+    **BASE_SCHEMA,
+    vol.Optional("unread_only", default=False): cv.boolean,
+    vol.Optional("search"): cv.string,
+    vol.Optional("limit", default=10): vol.All(vol.Coerce(int), vol.Range(min=1, max=50)),
+})
 SCHEMA_REFRESH = vol.Schema({})
 
 type VulcanConfigEntry = ConfigEntry[VulcanCoordinator]
@@ -189,6 +195,41 @@ def _register_services(hass: HomeAssistant) -> None:
         await coord.async_request_refresh()
         return {"date": day.isoformat(), "lessons": done}
 
+    async def read_messages(call: ServiceCall) -> ServiceResponse:
+        """Treść wiadomości ze skrzynki, na żądanie.
+
+        Świadomie usługa, nie encja: treść korespondencji ze szkołą nie ma trafiać
+        do bazy recordera przy każdej zmianie stanu ani do dziennika zdarzeń. Czytamy
+        to, co koordynator ma już pobrane — bez dodatkowego ruchu do serwera.
+        """
+        coord, acc = _target(hass, call)
+        login = acc["Pupil"]["LoginId"]
+        pupil = (coord.data or {}).get(login)
+        if pupil is None:
+            raise HomeAssistantError("brak pobranych danych ucznia")
+        szukaj = (call.data.get("search") or "").lower()
+        wiadomosci = [
+            msg for msg in pupil.messages
+            if (not call.data["unread_only"] or not msg.read)
+            and (not szukaj or szukaj in (msg.subject or "").lower() or szukaj in (msg.sender or "").lower())
+        ]
+        wiadomosci.sort(key=lambda x: (x.sent is not None, x.sent), reverse=True)
+        return {
+            "count": len(wiadomosci),
+            "messages": [
+                {
+                    "key": msg.key,
+                    "thread_key": msg.thread_key,
+                    "sent": msg.sent.isoformat() if msg.sent else None,
+                    "sender": msg.sender,
+                    "subject": msg.subject,
+                    "read": msg.read,
+                    "content": msg.content,
+                }
+                for msg in wiadomosci[: call.data["limit"]]
+            ],
+        }
+
     async def refresh(call: ServiceCall) -> None:
         for entry in hass.config_entries.async_loaded_entries(DOMAIN):
             entry.runtime_data.force_next = True
@@ -200,4 +241,6 @@ def _register_services(hass: HomeAssistant) -> None:
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "justify_absence", justify, SCHEMA_JUSTIFY,
                                  supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "read_messages", read_messages, SCHEMA_READ_MESSAGES,
+                                 supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "refresh", refresh, SCHEMA_REFRESH)

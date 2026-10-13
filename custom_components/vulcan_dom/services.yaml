@@ -23,6 +23,16 @@ justify_absence:
     reason:
       required: true
       selector: {text: {multiline: true}}
+read_messages:
+  fields:
+    pupil:
+      selector: {text: {}}
+    unread_only:
+      selector: {boolean: {}}
+    search:
+      selector: {text: {}}
+    limit:
+      selector: {number: {min: 1, max: 50, mode: box}}
 recipients:
   fields:
     pupil:
