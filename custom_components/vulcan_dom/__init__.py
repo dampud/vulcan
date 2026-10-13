@@ -53,6 +53,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: VulcanConfigEntry) -> bo
     coordinator = VulcanCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    # Skrzynka poza setupem: pierwsze odświeżenie dało już plan, oceny i sprawdziany,
+    # więc encje mają dane. Wiadomości dociągamy w tle, żeby wolna albo niedostępna
+    # skrzynka nie przedłużała startu Home Assistanta.
+    coordinator.enable_messages()
+    entry.async_create_background_task(
+        hass, coordinator.async_request_refresh(), f"{DOMAIN}_wiadomosci_po_starcie"
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_reload_on_options))
     return True

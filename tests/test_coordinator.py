@@ -179,3 +179,27 @@ async def test_awaria_skrzynki_nie_zabiera_pozostalych_danych(hass, entry, setup
     assert uczen.lessons and uczen.grades  # plan i oceny żyją mimo padniętej skrzynki
     assert hass.states.get("sensor.ala_testowa_pierwsza_lekcja_dzis").state not in (
         "unavailable", "unknown")
+
+
+async def test_pierwsze_pobranie_pomija_skrzynke(hass, entry, setup_entry):
+    """Setup wpisu jest blokujący — skrzynka nie może go przedłużać.
+
+    Po setupie flaga jest już zdjęta (robi to async_setup_entry), więc sprawdzamy
+    samo zachowanie bramki: przy włączonej fladze skrzynka nie jest odpytywana.
+    """
+    coord = entry.runtime_data
+    assert coord._skip_messages is False  # setup zdjął flagę i dociągnął w tle
+
+    sciezka = "mobile/messages/received/byBox"
+    przed = len(setup_entry.path_calls(sciezka))
+    coord._skip_messages = True
+    await odswiez(hass, entry)
+    assert len(setup_entry.path_calls(sciezka)) == przed  # zero nowych wywołań
+
+    # a dane pozostałych kategorii dalej są pobierane
+    uczen = coord.data[dane.LOGIN_ID]
+    assert uczen.lessons and uczen.grades
+
+    coord.enable_messages()
+    await odswiez(hass, entry)
+    assert len(setup_entry.path_calls(sciezka)) > przed
