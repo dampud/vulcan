@@ -108,3 +108,34 @@ async def test_zbyt_krotki_powod_odrzucony(hass, setup_entry):
 async def test_nieznany_uczen(hass, setup_entry):
     with pytest.raises(ServiceValidationError):
         await wywolaj(hass, "recipients", {"pupil": "Kazimierz"})
+
+
+async def test_czytanie_wiadomosci_zwraca_tresc(hass, setup_entry):
+    out = await wywolaj(hass, "read_messages", {})
+    assert out["count"] >= 1 and len(out["messages"]) == out["count"]  # poniżej limitu 10
+    pierwsza = out["messages"][0]
+    assert set(pierwsza) == {"key", "thread_key", "sent", "sender", "subject", "read", "content"}
+    assert pierwsza["content"]  # treść, nie sam temat
+    # najnowsze na górze
+    wyslane = [m["sent"] for m in out["messages"] if m["sent"]]
+    assert wyslane == sorted(wyslane, reverse=True)
+
+
+async def test_czytanie_tylko_nieprzeczytanych_i_szukanie(hass, setup_entry):
+    out = await wywolaj(hass, "read_messages", {"unread_only": True})
+    assert out["count"] >= 1
+    assert all(m["read"] is False for m in out["messages"])
+
+    wszystkie = await wywolaj(hass, "read_messages", {})
+    nadawca = wszystkie["messages"][0]["sender"]
+    znalezione = await wywolaj(hass, "read_messages", {"search": nadawca[:4].lower()})
+    assert znalezione["count"] >= 1
+    assert all(nadawca[:4].lower() in (m["sender"] or "").lower()
+               or nadawca[:4].lower() in (m["subject"] or "").lower()
+               for m in znalezione["messages"])
+
+
+async def test_czytanie_respektuje_limit(hass, setup_entry):
+    out = await wywolaj(hass, "read_messages", {"limit": 1})
+    assert len(out["messages"]) == 1
+    assert out["count"] >= 1  # count to liczba pasujących, nie zwróconych

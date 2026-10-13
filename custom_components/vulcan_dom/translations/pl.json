@@ -155,6 +155,28 @@
         }
       }
     },
+    "read_messages": {
+      "name": "Przeczytaj wiadomości",
+      "description": "Zwraca treść wiadomości ze skrzynki. Nie zapisuje ich w bazie stanów ani w dzienniku zdarzeń.",
+      "fields": {
+        "pupil": {
+          "name": "Uczeń",
+          "description": "Fragment imienia/nazwiska; puste, gdy jeden uczeń."
+        },
+        "unread_only": {
+          "name": "Tylko nieprzeczytane",
+          "description": "Pomija wiadomości już odczytane."
+        },
+        "search": {
+          "name": "Szukaj",
+          "description": "Fragment tematu albo nadawcy."
+        },
+        "limit": {
+          "name": "Ile najwyżej",
+          "description": "Maksymalna liczba zwróconych wiadomości (1–50)."
+        }
+      }
+    },
     "refresh": {
       "name": "Odśwież",
       "description": "Pobiera dane z eduVULCAN teraz (także w ciszy nocnej)."
