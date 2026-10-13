@@ -72,6 +72,13 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         self._seen: dict[str, dict[str, list[str]]] | None = None
         self._messages: dict[int, dict[str, m.Message]] = {}
         self._messages_synced: dict[int, datetime] = {}
+        # Pierwsze pobranie leci bez skrzynki. Setup wpisu jest blokujący: dopóki
+        # async_config_entry_first_refresh nie wróci, HA nie kończy fazy startu.
+        # Skrzynka jest największa i najwolniejsza, a przy niedostępnym DNS albo
+        # wolnej sieci potrafi wisieć minutami — i wtedy to NIE jest już problem
+        # tej integracji, tylko całego startu HA. Wiadomości dociągamy zaraz po
+        # starcie, w tle (patrz enable_messages()).
+        self._skip_messages = True
         self.last_sync = None
         self.force_next = False
 
@@ -153,6 +160,10 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             return None  # szkoła może nie losować numerka
         return (raw or {}).get("Number") or None
 
+    def enable_messages(self) -> None:
+        """Od następnego odświeżenia pobieramy też skrzynkę (wołane po setupie wpisu)."""
+        self._skip_messages = False
+
     async def _fetch_messages_safe(self, rest: str, pid: int, login_id: int, box: str | None) -> list[m.Message]:
         """Skrzynka nie może przewrócić całej integracji.
 
@@ -161,6 +172,8 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         mieliśmy, i lecimy dalej — bez tego pojedynczy błąd skrzynki zabierał użytkownikowi
         wszystkie encje naraz.
         """
+        if self._skip_messages:
+            return []
         try:
             return await self._fetch_messages(rest, pid, login_id, box)
         except (ApiError, TransportError) as err:
