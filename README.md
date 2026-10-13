@@ -108,6 +108,14 @@ Wklejony tekst nie jest nigdzie zapisywany. Home Assistant wymienia go na własn
 
 ---
 
+## Gotowy pulpit „Szkoła"
+
+W katalogu [`przyklady/dashboard-szkola/`](przyklady/dashboard-szkola/) leży gotowa strona pokazująca wszystko naraz: plan dnia z zastępstwami, oceny ze średnimi i przyciskiem ukrywania, sprawdziany, zadania, frekwencję i pocztę. Jasny i ciemny motyw, działa na telefonie i na tablecie.
+
+Pobierz ten katalog i otwórz `index.html` — zobaczysz pulpit wypełniony danymi pokazowymi, bez łączenia się z czymkolwiek. Jeśli układ ci odpowiada, skopiuj pliki do `config/www/szkola/` i otwórz pod adresem `/local/szkola/index.html?prefix=sensor.imie_nazwisko`. Instrukcja krok po kroku, razem z dodaniem pulpitu jako zakładki w Home Assistancie, jest w [README tego katalogu](przyklady/dashboard-szkola/README.md).
+
+---
+
 ## Ustawienia
 
 Ustawienia → Urządzenia i usługi → przy eduVULCAN kliknij **Konfiguruj**:
