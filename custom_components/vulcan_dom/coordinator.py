@@ -24,6 +24,7 @@ from .const import (
     DOMAIN,
     EVENT,
     EVENT_TEXT_LIMIT,
+    WINDOW_ATTENDANCE,
     WINDOW_EXAMS,
     WINDOW_HOMEWORK,
     WINDOW_SCHEDULE,
@@ -32,7 +33,7 @@ from .vulcan_client import ApiError, AuthError, TransportError, VulcanApi
 
 _LOGGER = logging.getLogger(__name__)
 
-CATEGORIES = ("grades", "notes", "messages", "exams", "homework", "changes")
+CATEGORIES = ("grades", "notes", "messages", "exams", "homework", "changes", "attendance")
 
 # ile kluczy na kategorię pamiętamy, żeby nie wysłać drugi raz zdarzenia o tym samym
 SEEN_LIMIT = 3000
@@ -124,17 +125,19 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         s_from, s_to = m.window(today, *WINDOW_SCHEDULE)
         e_from, e_to = m.window(today, *WINDOW_EXAMS)
         h_from, h_to = m.window(today, *WINDOW_HOMEWORK)
+        f_from, f_to = m.window(today, *WINDOW_ATTENDANCE)
 
         async def none():
             return None
 
-        schedule, exams, homework, grades, notes, messages = await asyncio.gather(
+        schedule, exams, homework, grades, notes, messages, attendance = await asyncio.gather(
             self.api.schedule(rest, pid, s_from, s_to),
             self.api.exams(rest, pid, e_from, e_to),
             self.api.homework(rest, pid, h_from, h_to),
             self.api.grades(rest, pid, unit.get("Id"), period["Id"]) if period else none(),
             self.api.notes(rest, pid),
             self._fetch_messages_safe(rest, pid, login_id, box),
+            self.api.lessons(rest, pid, f_from, f_to),
         )
 
         return m.PupilData(
@@ -146,6 +149,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             homework=m.parse_all(m.parse_homework, homework),
             grades=m.parse_all(m.parse_grade, grades),
             notes=m.parse_all(m.parse_note, notes),
+            attendance=m.parse_all(m.parse_attendance, attendance),
             messages=messages,
             lucky_number=await self._fetch_lucky(acc, rest, pid, today),
         )
@@ -223,6 +227,9 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
                 "exams": {e.key: e for e in pupil.exams},
                 "homework": {h.key: h for h in pupil.homework},
                 "changes": {m.lesson_change_key(l): l for l in pupil.lessons if l.changed or l.cancelled},
+                # tylko to, co czeka na usprawiedliwienie — usprawiedliwiona nieobecność
+                # wypada z kluczy i nie wywołuje drugiego zdarzenia
+                "attendance": {a.key: a for a in pupil.to_justify()},
             }
             for cat in CATEGORIES:
                 keys = current[cat]
@@ -259,6 +266,11 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         elif cat == "homework":
             data = {"type": "new_homework", "subject": item.subject,
                     "content": _short(item.content), "date": item.day.isoformat()}
+        elif cat == "attendance":
+            data = {"type": "absence_to_justify", "subject": item.subject,
+                    "date": item.day.isoformat(), "lesson": item.position,
+                    "kind": item.kind, "late": item.late,
+                    "lesson_class_id": item.lesson_class_id}
         else:
             data = {"type": "schedule_change", "subject": item.subject, "date": item.day.isoformat(),
                     "lesson": item.position, "start": item.start.isoformat(), "cancelled": item.cancelled,
