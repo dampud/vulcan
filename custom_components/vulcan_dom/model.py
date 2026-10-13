@@ -166,6 +166,32 @@ class Grade:
 
 
 @dataclass
+class Attendance:
+    """Jedna lekcja z punktu widzenia frekwencji."""
+
+    key: str
+    day: date
+    position: int | None
+    subject: str
+    kind: str                      # nazwa typu obecności ze słownika szkoły
+    present: bool                  # obecny (albo nic nie odnotowano)
+    absent: bool
+    justified: bool
+    late: bool
+    excused_late: bool
+    lesson_class_id: int | None    # potrzebne do usprawiedliwienia
+
+    @property
+    def to_justify(self) -> bool:
+        """Nieobecność albo spóźnienie bez usprawiedliwienia, z czym da się coś zrobić."""
+        if self.lesson_class_id is None:
+            return False
+        if self.absent and not self.justified:
+            return True
+        return self.late and not self.excused_late
+
+
+@dataclass
 class Note:
     key: str
     day: date | None
@@ -196,6 +222,7 @@ class PupilData:
     homework: list[Homework] = field(default_factory=list)
     grades: list[Grade] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
+    attendance: list[Attendance] = field(default_factory=list)
     messages: list[Message] = field(default_factory=list)
     lucky_number: int | None = None
 
@@ -228,6 +255,21 @@ class PupilData:
     def latest_grade(self) -> Grade | None:
         dated = [g for g in self.grades if g.created]
         return max(dated, key=lambda g: g.created) if dated else None
+
+    def to_justify(self) -> list[Attendance]:
+        """Wpisy frekwencji czekające na usprawiedliwienie, od najstarszego."""
+        return sorted((a for a in self.attendance if a.to_justify), key=lambda a: (a.day, a.position or 0))
+
+    def attendance_on(self, day: date) -> list[Attendance]:
+        return sorted((a for a in self.attendance if a.day == day), key=lambda a: a.position or 0)
+
+    def attendance_ratio(self) -> float | None:
+        """Odsetek obecności w pobranym oknie; None, gdy nie ma czego liczyć."""
+        znane = [a for a in self.attendance if a.kind]
+        if not znane:
+            return None
+        obecne = sum(1 for a in znane if not a.absent)
+        return round(100 * obecne / len(znane), 1)
 
     def grades_by_subject(self) -> dict[str, list[Grade]]:
         """Oceny pogrupowane po przedmiocie: przedmioty alfabetycznie, oceny od najstarszej."""
@@ -322,6 +364,61 @@ def parse_grade(raw: dict) -> Grade:
         modified=to_datetime(raw.get("ModifiedAt")),
         numeric=numeric,
         numeric_from_api=from_api,
+    )
+
+
+def _flag(obj: dict, *keys: str) -> bool | None:
+    """Pierwsza obecna flaga boolowska spośród podanych kluczy; None gdy żadnej nie ma."""
+    for key in keys:
+        value = obj.get(key)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def parse_attendance(raw: dict) -> Attendance | None:
+    """Frekwencja jednej lekcji.
+
+    Kształt `PresenceType` jest konfigurowany przez szkołę i nie wszystkie instalacje
+    wystawiają komplet flag, dlatego czytamy je defensywnie: najpierw flagi
+    (`Absence`, `AbsenceJustified`, `Late`, `LateExcused`), a gdy ich brak — wnioskujemy
+    ze słownikowej nazwy typu. Brak `PresenceType` traktujemy jako obecność: dopóki
+    szkoła niczego nie odnotowała, nie ma czego usprawiedliwiać.
+    """
+    day = to_date(raw.get("DateAt") or raw.get("Date"))
+    if not day:
+        return None
+    slot = raw.get("TimeSlot") or {}
+    pres = raw.get("PresenceType") or {}
+    nazwa = (_name(pres) or "").strip()
+    niska = nazwa.lower()
+
+    absent = _flag(pres, "Absence")
+    justified = _flag(pres, "AbsenceJustified", "Justified")
+    late = _flag(pres, "Late", "Tardy")
+    excused_late = _flag(pres, "LateExcused", "JustifiedLate")
+
+    if absent is None:
+        absent = any(w in niska for w in ("nieobecn", "absen"))
+    if justified is None:
+        justified = absent and "usprawiedliw" in niska and "nieusprawiedliw" not in niska
+    if late is None:
+        late = any(w in niska for w in ("spóźn", "spozn", "late"))
+    if excused_late is None:
+        excused_late = late and "usprawiedliw" in niska and "nieusprawiedliw" not in niska
+
+    return Attendance(
+        key=f"P{raw.get('Id')}-{day.isoformat()}",
+        day=day,
+        position=slot.get("Position"),
+        subject=_name(raw.get("Subject")) or raw.get("Event") or "Zajęcia",
+        kind=nazwa,
+        present=not absent,
+        absent=bool(absent),
+        justified=bool(justified),
+        late=bool(late),
+        excused_late=bool(excused_late),
+        lesson_class_id=raw.get("LessonClassId"),
     )
 
 
