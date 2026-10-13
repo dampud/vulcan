@@ -21,6 +21,8 @@ DEFAULT_WRITE_LIMIT = 10  # wysłanych wiadomości/usprawiedliwień na dobę
 WINDOW_SCHEDULE = (1, 14)
 WINDOW_EXAMS = (7, 60)
 WINDOW_HOMEWORK = (7, 30)
+# frekwencja: tylko wstecz — usprawiedliwia się to, co już było
+WINDOW_ATTENDANCE = (30, 0)
 
 EVENT_TEXT_LIMIT = 500
 PLATFORMS = ["sensor", "calendar"]

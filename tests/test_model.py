@@ -185,3 +185,45 @@ def test_parse_grade_zapisuje_zrodlo_wartosci():
     z_serwera = [g for g in oceny if g.numeric_from_api]
     assert [g.value for g in z_serwera] == ["3-"]
     assert [g.value for g in oceny if g.numeric is None] == ["np"]
+
+
+# --- frekwencja ---------------------------------------------------------------
+
+
+def test_parse_attendance_czyta_flagi():
+    wpisy = m.parse_all(m.parse_attendance, dane.LESSONS)
+    po_id = {a.key.split("-")[0]: a for a in wpisy}
+    assert po_id["P71"].absent and not po_id["P71"].justified and po_id["P71"].to_justify
+    assert po_id["P73"].present and not po_id["P73"].to_justify
+    assert po_id["P74"].absent and po_id["P74"].justified and not po_id["P74"].to_justify
+    assert po_id["P75"].late and not po_id["P75"].excused_late and po_id["P75"].to_justify
+
+
+def test_parse_attendance_wnioskuje_z_nazwy_bez_flag():
+    """Szkoła bez kompletu flag — klasyfikacja musi wyjść ze słownikowej nazwy."""
+    wpisy = {a.key.split("-")[0]: a for a in m.parse_all(m.parse_attendance, dane.LESSONS)}
+    nn = wpisy["P76"]
+    assert nn.absent and not nn.justified and nn.to_justify
+
+
+def test_parse_attendance_brak_wpisu_to_obecnosc():
+    wpisy = {a.key.split("-")[0]: a for a in m.parse_all(m.parse_attendance, dane.LESSONS)}
+    assert wpisy["P77"].present and not wpisy["P77"].to_justify
+
+
+def test_bez_lesson_class_id_nie_da_sie_usprawiedliwic():
+    att = m.parse_attendance({"Id": 9, "DateAt": dane.iso(dane.DZIS), "TimeSlot": {"Position": 1},
+                              "Subject": {"Name": "X"},
+                              "PresenceType": {"Name": "Nieobecność", "Absence": True}})
+    assert att.absent and att.lesson_class_id is None and not att.to_justify
+
+
+def test_widoki_frekwencji():
+    p = m.PupilData(pupil_id=1, login_id=2, name="x",
+                    attendance=m.parse_all(m.parse_attendance, dane.LESSONS))
+    czeka = p.to_justify()
+    assert [a.key.split("-")[0] for a in czeka] == ["P76", "P75", "P71", "P72"]  # od najstarszego
+    # 6 wpisów z typem (P77 bez typu nie liczy się), nieobecne P71/P72/P74/P76;
+    # spóźnienie (P75) to obecność
+    assert p.attendance_ratio() == 33.3
+    assert m.PupilData(pupil_id=1, login_id=2, name="x").attendance_ratio() is None

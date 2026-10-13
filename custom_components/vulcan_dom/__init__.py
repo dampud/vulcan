@@ -13,6 +13,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
+from . import model as m
 from .const import CONF_CREDENTIAL, CONF_WRITE_LIMIT, DEFAULT_WRITE_LIMIT, DOMAIN, PLATFORMS
 from .coordinator import VulcanCoordinator
 from .vulcan_client import ApiError, Credential, TransportError, VulcanApi
@@ -164,28 +165,34 @@ def _register_services(hass: HomeAssistant) -> None:
             lessons = await coord.api.lessons(rest, pid, day, day)
         except (ApiError, TransportError) as err:
             raise HomeAssistantError(str(err)) from err
+        # Świeży odczyt z serwera, nie stan koordynatora: między odświeżeniami ktoś mógł
+        # już usprawiedliwić, a zapis jest nieodwracalny. Klasyfikację robi ten sam parser,
+        # na którym stoi sensor — jedno miejsce decyduje, co jest do usprawiedliwienia.
         targets = []
         for les in lessons or []:
-            if not les.get("LessonClassId"):
+            att = m.parse_attendance(les)
+            if att is None or att.lesson_class_id is None:
                 continue
-            pos = (les.get("TimeSlot") or {}).get("Position")
-            pres = les.get("PresenceType") or {}
             if wanted:
-                if pos in wanted:
-                    targets.append(les)
-            elif pres.get("Absence") and not pres.get("AbsenceJustified"):
-                targets.append(les)
+                if att.position in wanted:
+                    targets.append((les, att))
+            elif att.to_justify:
+                targets.append((les, att))
         if not targets:
-            raise ServiceValidationError(f"brak nieusprawiedliwionych nieobecności {day.isoformat()}")
+            raise ServiceValidationError(
+                f"brak nieusprawiedliwionych nieobecności {day.isoformat()}"
+                if not wanted else
+                f"lekcje {sorted(wanted)} z {day.isoformat()} nie mają wpisu frekwencji do usprawiedliwienia"
+            )
         limiter.take(coord.config_entry)
         done = []
-        for les in targets:
-            payload = coord.api.justification_payload(pid, login, les["LessonClassId"], call.data["reason"])
+        for les, att in targets:
+            payload = coord.api.justification_payload(pid, login, att.lesson_class_id, call.data["reason"])
             try:
                 await coord.api.justify_lesson(rest, pid, payload)
             except (ApiError, TransportError) as err:
                 raise HomeAssistantError(f"usprawiedliwienie nieudane po {len(done)} lekcjach: {err}") from err
-            done.append((les.get("TimeSlot") or {}).get("Position"))
+            done.append(att.position)
         await coord.async_request_refresh()
         return {"date": day.isoformat(), "lessons": done}
 
