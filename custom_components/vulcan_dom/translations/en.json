@@ -74,6 +74,9 @@
       "grades": {
         "name": "Oceny"
       },
+      "attendance_to_justify": {
+        "name": "Do usprawiedliwienia"
+      },
       "unread_messages": {
         "name": "Nieprzeczytane wiadomości"
       },

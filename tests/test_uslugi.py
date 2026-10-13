@@ -110,6 +110,21 @@ async def test_nieznany_uczen(hass, setup_entry):
         await wywolaj(hass, "recipients", {"pupil": "Kazimierz"})
 
 
+async def test_usprawiedliwienie_pomija_juz_usprawiedliwione_i_bierze_spoznienie(hass, setup_entry):
+    """Dzień z nieobecnością usprawiedliwioną (lekcja 1) i spóźnieniem (lekcja 2)."""
+    dzien = (dane.DZIS - timedelta(days=2)).isoformat()
+    out = await wywolaj(hass, "justify_absence", {"date": dzien, "reason": "Autobus"})
+    assert out["lessons"] == [2]  # lekcja 1 była już usprawiedliwiona
+    assert [k["LessonClassId"] for k in setup_entry.bodies(USPRAWIEDLIW)] == [705]
+
+
+async def test_usprawiedliwienie_bez_flag_po_samej_nazwie(hass, setup_entry):
+    """Szkoła bez kompletu flag — 'Nieobecność nieusprawiedliwiona' ma się dać usprawiedliwić."""
+    dzien = (dane.DZIS - timedelta(days=3)).isoformat()
+    out = await wywolaj(hass, "justify_absence", {"date": dzien, "reason": "Choroba"})
+    assert out["lessons"] == [1]  # lekcja 2 (WF) nie ma wpisu frekwencji
+    assert [k["LessonClassId"] for k in setup_entry.bodies(USPRAWIEDLIW)] == [706]
+
 async def test_czytanie_wiadomosci_zwraca_tresc(hass, setup_entry):
     out = await wywolaj(hass, "read_messages", {})
     assert out["count"] >= 1 and len(out["messages"]) == out["count"]  # poniżej limitu 10
