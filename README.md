@@ -57,6 +57,8 @@ Na komputerze (nie na telefonie — będzie potrzebna konsola przeglądarki):
 
 Jeśli krok 5 nic nie skopiował, zaznacz całą zawartość strony myszką (`Ctrl`/`Cmd` + `A`) i skopiuj ją zwykłym `Ctrl`/`Cmd` + `C`.
 
+> **Od tej chwili aż do końca kroku 3 nie kopiuj niczego innego.** Każde kolejne kopiowanie nadpisze schowek i trzeba będzie wrócić tutaj.
+
 ---
 
 ## Krok 3: dodaj integrację w Home Assistancie
@@ -158,10 +160,27 @@ Klient API (`vulcan_client`) działa samodzielnie, bez Home Assistanta, i ma wł
 
 ```bash
 pip install -e ".[dev]"
+```
 
-# Rejestracja — tokeny nie trafiają na ekran ani do historii powłoki
-pbpaste | vulcan register -          # macOS; na Linuksie: xclip -o | vulcan register -
+**Rejestracja.** Token idzie przez schowek, żeby nie trafił na ekran ani do historii powłoki. Kolejność jest tu istotna: polecenie przygotowujesz *przed* skopiowaniem tokenu, bo skopiowanie samego polecenia nadpisałoby schowek.
 
+1. W terminalu wpisz poniższe polecenie, ale **nie naciskaj jeszcze Enter**:
+
+   ```bash
+   pbpaste | vulcan register -          # macOS; na Linuksie: xclip -o | vulcan register -
+   ```
+
+2. Przejdź do przeglądarki zalogowanej na eduvulcan.pl, otwórz `https://eduvulcan.pl/api/ap`, w konsoli (F12 → Console) wykonaj:
+
+   ```js
+   copy(document.querySelector('#ap').value)
+   ```
+
+3. Wróć do terminala i dopiero teraz naciśnij **Enter**.
+
+Jeśli wolisz nie żonglować oknami, uruchom `vulcan register -` bez potoku i wklej token wprost do terminala, kończąc `Enter` i `Ctrl` + `D`. Token będzie wtedy widoczny na ekranie.
+
+```bash
 vulcan accounts                       # kto jest na koncie i jakie ma uprawnienia
 vulcan fetch schedule --pupil 0 --back 0 --ahead 7
 vulcan fetch exams --pupil 0
