@@ -132,12 +132,16 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
 
         schedule, exams, homework, grades, notes, messages, attendance = await asyncio.gather(
             self.api.schedule(rest, pid, s_from, s_to),
-            self.api.exams(rest, pid, e_from, e_to),
-            self.api.homework(rest, pid, h_from, h_to),
-            self.api.grades(rest, pid, unit.get("Id"), period["Id"]) if period else none(),
-            self.api.notes(rest, pid),
+            self._osobno("sprawdziany", self.api.exams(rest, pid, e_from, e_to), []),
+            self._osobno("zadania", self.api.homework(rest, pid, h_from, h_to), []),
+            self._osobno(
+                "oceny",
+                self.api.grades(rest, pid, unit.get("Id"), period["Id"]) if period else none(),
+                [],
+            ),
+            self._osobno("uwagi", self.api.notes(rest, pid), []),
             self._fetch_messages_safe(rest, pid, login_id, box),
-            self.api.lessons(rest, pid, f_from, f_to),
+            self._osobno("frekwencja", self.api.lessons(rest, pid, f_from, f_to), []),
         )
 
         return m.PupilData(
@@ -167,6 +171,20 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
     def enable_messages(self) -> None:
         """Od następnego odświeżenia pobieramy też skrzynkę (wołane po setupie wpisu)."""
         self._skip_messages = False
+
+    async def _osobno(self, nazwa: str, coro, awaryjne):
+        """Pozwala jednej kategorii paść bez zabierania reszty.
+
+        Serwer szkoły potrafi oddać dla pojedynczego zasobu odpowiedź, której nie da się
+        sparsować (widziane na ocenach: "niepoprawny JSON"). Bez tego opakowania taki
+        jednorazowy błąd przewracał całe odświeżenie i wszystkie encje szły w
+        `unavailable`, choć plan, sprawdziany i frekwencja przyszły poprawnie.
+        """
+        try:
+            return await coro
+        except (ApiError, TransportError) as err:
+            _LOGGER.warning("Nie udało się pobrać: %s (%s) — reszta danych bez zmian", nazwa, err)
+            return awaryjne
 
     async def _fetch_messages_safe(self, rest: str, pid: int, login_id: int, box: str | None) -> list[m.Message]:
         """Skrzynka nie może przewrócić całej integracji.

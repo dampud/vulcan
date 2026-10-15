@@ -158,6 +158,24 @@
         }
       }
     },
+    "attendance": {
+      "name": "Frekwencja",
+      "description": "Zwraca frekwencję z podanego zakresu dni, prosto z serwera. Nie zapisuje niczego.",
+      "fields": {
+        "pupil": {
+          "name": "Uczeń",
+          "description": "Fragment imienia/nazwiska; puste, gdy jeden uczeń."
+        },
+        "date_from": {
+          "name": "Od dnia",
+          "description": "Pierwszy dzień zakresu."
+        },
+        "date_to": {
+          "name": "Do dnia",
+          "description": "Ostatni dzień zakresu; puste = tylko jeden dzień."
+        }
+      }
+    },
     "read_messages": {
       "name": "Przeczytaj wiadomości",
       "description": "Zwraca treść wiadomości ze skrzynki. Nie zapisuje ich w bazie stanów ani w dzienniku zdarzeń.",

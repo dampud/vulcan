@@ -45,6 +45,11 @@ SCHEMA_READ_MESSAGES = vol.Schema({
     vol.Optional("limit", default=10): vol.All(vol.Coerce(int), vol.Range(min=1, max=50)),
 })
 SCHEMA_REFRESH = vol.Schema({})
+SCHEMA_ATTENDANCE = vol.Schema({
+    **BASE_SCHEMA,
+    vol.Required("date_from"): cv.date,
+    vol.Optional("date_to"): cv.date,
+})
 
 type VulcanConfigEntry = ConfigEntry[VulcanCoordinator]
 
@@ -237,6 +242,48 @@ def _register_services(hass: HomeAssistant) -> None:
             ],
         }
 
+    async def attendance(call: ServiceCall) -> ServiceResponse:
+        """Frekwencja z podanego zakresu dni, prosto z serwera.
+
+        Odczyt na żądanie, niezależny od okna koordynatora — przydaje się, gdy trzeba
+        zajrzeć w konkretny dzień albo sprawdzić, czy serwer w ogóle coś zwraca.
+        `surowych_rekordow` to liczba rekordów przed parsowaniem: gdy jest zerowa,
+        pusto jest po stronie serwera, a nie w klasyfikacji wpisów.
+        """
+        coord, acc = _target(hass, call)
+        rest, pid = acc["Unit"]["RestURL"], acc["Pupil"]["Id"]
+        od: date = call.data["date_from"]
+        do: date = call.data.get("date_to") or od
+        if do < od:
+            raise ServiceValidationError("'date_to' jest wcześniejsze niż 'date_from'")
+        try:
+            surowe = await coord.api.lessons(rest, pid, od, do)
+        except (ApiError, TransportError) as err:
+            raise HomeAssistantError(str(err)) from err
+        wpisy = m.parse_all(m.parse_attendance, surowe)
+        return {
+            "od": od.isoformat(),
+            "do": do.isoformat(),
+            "surowych_rekordow": len(surowe or []),
+            "rozpoznanych": len(wpisy),
+            "rodzaje": sorted({a.kind for a in wpisy if a.kind}),
+            "bez_lesson_class_id": sum(1 for a in wpisy if a.lesson_class_id is None),
+            "wpisy": [
+                {
+                    "data": a.day.isoformat(),
+                    "lekcja": a.position,
+                    "przedmiot": a.subject,
+                    "rodzaj": a.kind,
+                    "obecny": a.present,
+                    "nieobecny": a.absent,
+                    "usprawiedliwiona": a.justified,
+                    "spoznienie": a.late,
+                    "do_usprawiedliwienia": a.to_justify,
+                }
+                for a in sorted(wpisy, key=lambda x: (x.day, x.position or 0))
+            ],
+        }
+
     async def refresh(call: ServiceCall) -> None:
         for entry in hass.config_entries.async_loaded_entries(DOMAIN):
             entry.runtime_data.force_next = True
@@ -249,5 +296,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "justify_absence", justify, SCHEMA_JUSTIFY,
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "read_messages", read_messages, SCHEMA_READ_MESSAGES,
+                                 supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "attendance", attendance, SCHEMA_ATTENDANCE,
                                  supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "refresh", refresh, SCHEMA_REFRESH)

@@ -154,3 +154,32 @@ async def test_czytanie_respektuje_limit(hass, setup_entry):
     out = await wywolaj(hass, "read_messages", {"limit": 1})
     assert len(out["messages"]) == 1
     assert out["count"] >= 1  # count to liczba pasujących, nie zwróconych
+
+
+async def test_odczyt_frekwencji_dla_zakresu(hass, setup_entry):
+    """Odczyt na żądanie — rozstrzyga, czy pusto jest po stronie serwera, czy parsera."""
+    wczoraj = (dane.DZIS - timedelta(days=1)).isoformat()
+    out = await wywolaj(hass, "attendance", {"date_from": wczoraj})
+    assert out["od"] == wczoraj and out["do"] == wczoraj
+    assert out["surowych_rekordow"] >= out["rozpoznanych"] >= 1
+    assert "Nieobecność" in out["rodzaje"]
+    wpis = out["wpisy"][0]
+    assert set(wpis) == {"data", "lekcja", "przedmiot", "rodzaj", "obecny", "nieobecny",
+                         "usprawiedliwiona", "spoznienie", "do_usprawiedliwienia"}
+
+
+async def test_odczyt_frekwencji_zakres_wielodniowy_i_sortowanie(hass, setup_entry):
+    out = await wywolaj(hass, "attendance", {
+        "date_from": (dane.DZIS - timedelta(days=3)).isoformat(),
+        "date_to": dane.DZIS.isoformat(),
+    })
+    klucze = [(w["data"], w["lekcja"]) for w in out["wpisy"]]
+    assert klucze == sorted(klucze)
+
+
+async def test_odczyt_frekwencji_odwrocony_zakres_odrzucony(hass, setup_entry):
+    with pytest.raises(ServiceValidationError):
+        await wywolaj(hass, "attendance", {
+            "date_from": dane.DZIS.isoformat(),
+            "date_to": (dane.DZIS - timedelta(days=5)).isoformat(),
+        })
