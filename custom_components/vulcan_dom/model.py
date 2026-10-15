@@ -386,6 +386,28 @@ def record_date(raw: dict) -> date | None:
     return None
 
 
+def justification_label(raw: dict) -> str:
+    """Etykieta stanu wniosku o usprawiedliwienie — sam status, bez powodu.
+
+    Kształt `JustificationStatus` zależy od szkoły (bywa słownikiem, tekstem albo
+    flagą), a powód wpisany przez rodzica to treść, której nie wynosimy. Zwracamy
+    więc wyłącznie nazwę stanu albo 'brak'.
+    """
+    value = raw.get("JustificationStatus")
+    if value is None:
+        return "brak"
+    if isinstance(value, bool):
+        return "tak" if value else "nie"
+    if isinstance(value, dict):
+        return (_name(value) or value.get("Symbol") or type_or_blank(value)).strip() or "brak"
+    return str(value).strip() or "brak"
+
+
+def type_or_blank(value: dict) -> str:
+    """Gdy słownik nie ma nazwy, pokazujemy same nazwy jego pól, nie wartości."""
+    return "+".join(sorted(value)) if value else "brak"
+
+
 def _flag(obj: dict, *keys: str) -> bool | None:
     """Pierwsza obecna flaga boolowska spośród podanych kluczy; None gdy żadnej nie ma."""
     for key in keys:

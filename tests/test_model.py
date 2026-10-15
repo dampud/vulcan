@@ -278,3 +278,21 @@ def test_flagi_biora_gore_nad_nazwa():
     """Gdy szkoła wystawia flagi, nazwa typu jest tylko opisem."""
     a = _obecnosc("nieobecność", Absence=True, AbsenceJustified=True)
     assert a.absent is True and a.justified is True and a.to_justify is False
+
+
+@pytest.mark.parametrize(
+    ("surowy", "etykieta"),
+    [
+        ({}, "brak"),
+        ({"JustificationStatus": None}, "brak"),
+        ({"JustificationStatus": True}, "tak"),
+        ({"JustificationStatus": False}, "nie"),
+        ({"JustificationStatus": "Oczekuje"}, "Oczekuje"),
+        ({"JustificationStatus": {"Name": "Zaakceptowane"}}, "Zaakceptowane"),
+        ({"JustificationStatus": {"Symbol": "ACC"}}, "ACC"),
+        # słownik bez nazwy: same nazwy pól, nigdy wartości
+        ({"JustificationStatus": {"Id": 3, "Powod": "grypa"}}, "Id+Powod"),
+    ],
+)
+def test_justification_label_nie_wynosi_tresci(surowy, etykieta):
+    assert m.justification_label(surowy) == etykieta
