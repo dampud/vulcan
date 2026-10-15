@@ -14,7 +14,7 @@ mode: single
 max_exceeded: silent
 description: >-
   Prosi nauczyciela ostatniej lekcji, na której uczeń zostaje, o zwolnienie z lekcji
-  późniejszych. Wysyłka dopiero po potwierdzeniu Face ID na iPhonie. Wiadomość idzie
+  późniejszych. Wysyłka dopiero po potwierdzeniu na iPhonie. Wiadomość idzie
   do prawdziwego dziennika i nie da się jej cofnąć.
 
 fields:
@@ -156,8 +156,7 @@ sequence:
           interruption-level: time-sensitive
         actions:
           - action: "{{ akcja_tak }}"
-            title: Wyślij
-            authenticationRequired: true
+            title: Potwierdź
             destructive: true
           - action: "{{ akcja_nie }}"
             title: Anuluj
@@ -200,7 +199,7 @@ sequence:
                else 'Brak potwierdzenia w 10 minut.' }}
       - stop: Brak potwierdzenia — wiadomość nie została wysłana.
     else:
-      - alias: Potwierdzone Face ID — wyślij w dzienniku
+      - alias: Potwierdzone — wyślij w dzienniku
         action: vulcan_dom.send_message
         data:
           recipient: "{{ adresat }}"
