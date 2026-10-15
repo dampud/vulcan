@@ -170,3 +170,25 @@ async def test_sensor_frekwencji_pokazuje_co_do_usprawiedliwienia(hass, setup_en
     # słownik typów tej szkoły — do sprawdzenia, czy mapowanie flag trafia w realne dane
     assert "Obecność" in stan.attributes["rodzaje"]
     assert "Nieobecność usprawiedliwiona" in stan.attributes["rodzaje"]
+
+
+async def test_sensor_frekwencji_mowi_ile_pozycji_pokazuje(hass, setup_entry):
+    """Konsument musi odróżnić „tyle jest" od „tyle zmieściło się w atrybucie”.
+
+    Bez tych liczb panel pokazuje 10 pozycji i bierze je za całość — dzień
+    z ośmioma lekcjami wygląda wtedy na trzy.
+    """
+    stan = hass.states.get(FREKWENCJA)
+    assert stan.attributes["wszystkich"] == int(stan.state)
+    assert stan.attributes["pokazano"] == len(stan.attributes["do_usprawiedliwienia"])
+    assert stan.attributes["lista_przycieta"] is False
+
+
+async def test_sensor_frekwencji_pokazuje_wnioski_w_toku(hass, setup_entry):
+    """Wniosek wysłany, a nierozpatrzony ma być widoczny, nie tylko policzony."""
+    stan = hass.states.get(FREKWENCJA)
+    assert "wnioski" in stan.attributes
+    assert stan.attributes["wnioski_w_toku"] == len(stan.attributes["wnioski"])
+    # wniosek w toku nie liczy się jako do usprawiedliwienia
+    czeka = {(w["data"], w["lekcja"]) for w in stan.attributes["do_usprawiedliwienia"]}
+    assert czeka.isdisjoint({(w["data"], w["lekcja"]) for w in stan.attributes["wnioski"]})

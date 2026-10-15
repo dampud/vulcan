@@ -25,6 +25,10 @@ MAX_LIST = 10
 # ile ocen z przedmiotu trafia do atrybutów — atrybuty encji lądują w bazie
 # recordera przy każdej zmianie stanu, więc nie wpuszczamy tam całego dziennika
 MAX_GRADES = 30
+# Frekwencja: dzień nauki ma do 9 lekcji, więc dziesięć pozycji urywa się w środku
+# drugiego dnia. Trzydzieści mieści kilka dni wstecz, a to wciąż ułamek tego, co
+# trzymają atrybuty ocen. Pełne listy bez limitu daje usługa `vulcan_dom.attendance`.
+MAX_ATTENDANCE = 30
 
 
 def _today():
@@ -67,13 +71,22 @@ def _att_entry(a: m.Attendance) -> dict[str, Any]:
 
 def _attendance_attrs(p: m.PupilData) -> dict[str, Any]:
     czeka = p.to_justify()
+    wnioski = p.pending_justifications()
     return {
-        "do_usprawiedliwienia": [_att_entry(a) for a in czeka[:MAX_LIST]],
+        "do_usprawiedliwienia": [_att_entry(a) for a in czeka[:MAX_ATTENDANCE]],
+        # Listy w atrybutach są przycięte, bo atrybuty encji trafiają do bazy
+        # recordera przy każdej zmianie stanu. Bez tych dwóch liczb konsument
+        # widzi 10 pozycji i bierze je za całość — wtedy dzień z ósmą lekcją
+        # pokazuje trzy. Pełne listy daje usługa `vulcan_dom.attendance`.
+        "pokazano": min(len(czeka), MAX_ATTENDANCE),
+        "wszystkich": len(czeka),
+        "lista_przycieta": len(czeka) > MAX_ATTENDANCE,
+        # wnioski wysłane i nierozpatrzone nie są już „do usprawiedliwienia", ale
+        # muszą być widoczne — inaczej znikają aż do decyzji wychowawcy
+        "wnioski_w_toku": len(wnioski),
+        "wnioski": [_att_entry(a) for a in wnioski[:MAX_ATTENDANCE]],
         "spoznienia": sum(1 for a in czeka if a.late),
         "nieobecnosci": sum(1 for a in czeka if a.absent),
-        # wnioski wysłane i nierozpatrzone nie są już „do usprawiedliwienia", ale
-        # warto je widzieć — inaczej znikają z pola widzenia aż do decyzji wychowawcy
-        "wnioski_w_toku": sum(1 for a in p.attendance if a.justification_pending),
         "frekwencja_procent": p.attendance_ratio(),
         "lekcji_w_oknie": len(p.attendance),
         # słownik typów obecności tej szkoły — same nazwy kategorii, bez treści dziennika.

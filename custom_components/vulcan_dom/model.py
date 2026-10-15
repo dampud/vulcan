@@ -267,6 +267,17 @@ class PupilData:
         """Wpisy frekwencji czekające na usprawiedliwienie, od najstarszego."""
         return sorted((a for a in self.attendance if a.to_justify), key=lambda a: (a.day, a.position or 0))
 
+    def pending_justifications(self) -> list[Attendance]:
+        """Lekcje z wnioskiem wysłanym, a nierozpatrzonym — od najstarszej.
+
+        Nie są „do usprawiedliwienia", ale muszą być widoczne: inaczej znikają
+        z pola widzenia aż do decyzji wychowawcy i wyglądają jak załatwione.
+        """
+        return sorted(
+            (a for a in self.attendance if a.justification_pending),
+            key=lambda a: (a.day, a.position or 0),
+        )
+
     def attendance_on(self, day: date) -> list[Attendance]:
         return sorted((a for a in self.attendance if a.day == day), key=lambda a: a.position or 0)
 
