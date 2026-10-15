@@ -200,6 +200,16 @@ vulcan schema lessons --pupil 0 --back 7 --ahead 0
 # Rozkład wartości jednej wskazanej ścieżki (to już pokazuje treść — świadomie)
 vulcan schema lessons --pupil 0 --values '[].PresenceType.Name'
 
+# Konkretne dni zamiast liczenia od dziś (działa też w fetch, parse, fixture)
+vulcan schema lessons --pupil 0 --from 2026-10-05 --to 2026-10-06
+
+# Ile z tych rekordów rozpoznaje parser integracji — bez restartu Home Assistanta
+vulcan parse lessons --pupil 0 --from 2026-10-05 --to 2026-10-06
+vulcan parse lessons --pupil 0 --back 14 --ahead 0 --pola
+
+# Zamaskowane rekordy do testów regresji (nazwiska, oceny i uwagi nie wychodzą)
+vulcan fixture lessons --pupil 0 --back 14 --ahead 0 --limit 20 > /tmp/lessons.json
+
 # Zapisy — domyślnie podgląd, wysyłka dopiero z --send
 vulcan send-message --pupil 0 --to "Kowalska" --subject "Temat" --body "Treść"
 vulcan justify --pupil 0 --day 2026-10-12 --reason "Choroba"

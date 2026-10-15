@@ -41,7 +41,7 @@ jobs:
           ! python -c "import homeassistant" 2>/dev/null
           vulcan --help > /dev/null
       # --noconftest: conftest testów integracji wymaga HA, którego w tym jobie nie ma
-      - run: pytest --noconftest tests/test_client.py -q
+      - run: pytest --noconftest tests/test_client.py tests/test_cli.py -q
 
   integracja:
     runs-on: ubuntu-latest
