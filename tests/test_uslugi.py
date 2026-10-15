@@ -165,7 +165,11 @@ async def test_odczyt_frekwencji_dla_zakresu(hass, setup_entry):
     assert "Nieobecność" in out["rodzaje"]
     wpis = out["wpisy"][0]
     assert set(wpis) == {"data", "lekcja", "przedmiot", "rodzaj", "obecny", "nieobecny",
-                         "usprawiedliwiona", "spoznienie", "do_usprawiedliwienia"}
+                         "usprawiedliwiona", "spoznienie", "do_usprawiedliwienia",
+                         "wniosek_w_toku", "stan_wniosku"}
+    # bez stanu wniosku nie da się odróżnić lekcji z wysłanym wnioskiem od nietkniętej
+    assert isinstance(wpis["wniosek_w_toku"], bool)
+    assert "statusy" in out and "pola_rekordu" in out
 
 
 async def test_odczyt_frekwencji_zakres_wielodniowy_i_sortowanie(hass, setup_entry):
