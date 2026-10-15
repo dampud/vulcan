@@ -1,0 +1,229 @@
+# Zwolnienie z części dnia — wiadomość do nauczyciela ostatniej lekcji, na której uczeń zostaje.
+#
+# Wymaga integracji vulcan_dom w wersji z usługą `schedule` (0.6.0 w górę).
+# Wkleić w Narzędzia deweloperskie → nie; to jest skrypt: Ustawienia → Automatyzacje
+# i sceny → Skrypty → ⋮ → Edytuj w YAML.
+#
+# Dlaczego adresat bierze się z planu, a nie z listy: wybiera się lekcję, po której
+# uczeń wychodzi, a nie osobę. Dzięki temu nie da się wysłać prośby do przypadkowego
+# nauczyciela, a przy zastępstwie wiadomość idzie do tego, kto faktycznie uczy.
+
+alias: Vulcan — zwolnienie z lekcji
+icon: mdi:door-open
+mode: single
+max_exceeded: silent
+description: >-
+  Prosi nauczyciela ostatniej lekcji, na której uczeń zostaje, o zwolnienie z lekcji
+  późniejszych. Wysyłka dopiero po potwierdzeniu Face ID na iPhonie. Wiadomość idzie
+  do prawdziwego dziennika i nie da się jej cofnąć.
+
+fields:
+  dzien:
+    name: Dzień
+    description: Dzień, którego dotyczy zwolnienie.
+    required: true
+    selector:
+      date: {}
+  ostatnia_lekcja:
+    name: Ostatnia lekcja w szkole
+    description: >-
+      Numer lekcji, na której uczeń jeszcze zostaje. Zwolnienie obejmie wszystkie
+      lekcje po niej. Nauczyciel TEJ lekcji dostanie wiadomość.
+    required: true
+    selector:
+      number: { min: 1, max: 12, mode: box }
+  powod:
+    name: Powód
+    required: true
+    default: z powodu wizyty u lekarza
+    selector:
+      select:
+        options:
+          - z powodu wizyty u lekarza
+          - z powodu złego samopoczucia
+          - z powodu niedyspozycji
+          - z przyczyn rodzinnych
+  dopisek:
+    name: Dopisek
+    description: Opcjonalne zdanie doklejane przed pozdrowieniami.
+    required: false
+    selector:
+      text: { multiline: true }
+  takze_wychowawca:
+    name: Wyślij też do wychowawczyni
+    description: Ta sama wiadomość trafi dodatkowo do wychowawczyni.
+    required: false
+    default: false
+    selector:
+      boolean: {}
+  wychowawca:
+    name: Wychowawczyni
+    description: Fragment nazwiska z książki adresowej. Używany tylko przy przełączniku powyżej.
+    required: false
+    default: ""
+    selector:
+      text: {}
+
+sequence:
+  # Jednorazowy kod musi powstać ZANIM odczytają go nazwy akcji — blok variables
+  # renderuje klucze po kolei, więc to osobne kroki, nie jedna mapa.
+  - alias: Jednorazowy kod tego uruchomienia
+    variables:
+      nonce: "{{ (range(1, 999999999) | random) ~ '-' ~ (range(1, 999999999) | random) }}"
+  - alias: Nazwy akcji i tag
+    variables:
+      akcja_tak: "VULCAN_ZW_OK_{{ nonce }}"
+      akcja_nie: "VULCAN_ZW_NIE_{{ nonce }}"
+      tag: "vulcan_zw_{{ nonce }}"
+  - alias: Przerwij, gdy kod jednorazowy nie powstał
+    if:
+      - condition: template
+        value_template: "{{ akcja_tak == 'VULCAN_ZW_OK_' or akcja_nie == 'VULCAN_ZW_NIE_' }}"
+    then:
+      - stop: Nie powstał kod jednorazowy — potwierdzenie byłoby nieszczelne.
+        error: true
+
+  - alias: Plan dnia z dziennika
+    action: vulcan_dom.schedule
+    data:
+      date: "{{ dzien }}"
+    response_variable: plan
+
+  - alias: Która lekcja jest ostatnia, a które odpadają
+    variables:
+      zostaje: "{{ (plan.lekcje | selectattr('lekcja', 'eq', ostatnia_lekcja | int) | list | first) | default(none) }}"
+      zwolnione: >-
+        {{ plan.lekcje | rejectattr('odwolana')
+           | selectattr('lekcja', 'gt', ostatnia_lekcja | int) | list }}
+  - alias: Czy w ogóle jest o co prosić
+    if:
+      - condition: template
+        value_template: "{{ zostaje is none or zwolnione | count == 0 }}"
+    then:
+      - stop: >-
+          {{ 'Nie znalazłem lekcji numer ' ~ ostatnia_lekcja ~ ' w planie na ' ~ dzien
+             if zostaje is none
+             else 'Po lekcji ' ~ ostatnia_lekcja ~ ' nie ma już żadnych zajęć — nie ma z czego zwalniać.' }}
+        error: true
+
+  - alias: Adresat z planu, sprawdzony w książce adresowej
+    variables:
+      adresat: "{{ zostaje.nauczyciel | default('', true) }}"
+  - alias: Sprawdź, że nazwisko trafia dokładnie w jedną osobę
+    action: vulcan_dom.recipients
+    data:
+      search: "{{ adresat }}"
+    response_variable: ksiazka
+  - alias: Przerwij przy zerze albo kilku trafieniach
+    if:
+      - condition: template
+        value_template: "{{ adresat == '' or (ksiazka.recipients | default([]) | count) != 1 }}"
+    then:
+      - stop: >-
+          {{ 'Lekcja ' ~ ostatnia_lekcja ~ ' nie ma w planie nauczyciela.' if adresat == ''
+             else 'Nazwisko „' ~ adresat ~ '” pasuje do ' ~ (ksiazka.recipients | default([]) | count)
+                  ~ ' osób w książce adresowej — nie zgaduję, do kogo wysłać.' }}
+        error: true
+
+  - alias: Treść wiadomości
+    variables:
+      temat: Prośba o zwolnienie z lekcji
+      lista: >-
+        {{ zwolnione | map(attribute='przedmiot') | list | join(', ') }}
+      tresc: >-
+        Dzień dobry,
+
+        Proszę o zwolnienie córki z lekcji {{ zwolnione | map(attribute='lekcja') | join(', ') }}
+        ({{ lista }}) w dniu {{ dzien }} {{ powod }}. Córka zostanie na lekcji
+        {{ ostatnia_lekcja }} ({{ zostaje.przedmiot }}) i po niej wyjdzie ze szkoły.
+        {% if dopisek is defined and dopisek %}
+
+        {{ dopisek }}{% endif %}
+
+        Z pozdrowieniami
+        Damian Pudło
+
+  - alias: Pytanie z przyciskami na iPhonie
+    # Legacy notify.mobile_app_iphone, bo platforma encyjna notify.send_message
+    # nie przenosi data.actions.
+    action: notify.mobile_app_iphone
+    data:
+      title: Wysłać prośbę o zwolnienie?
+      message: "Do: {{ adresat }}\n\n{{ tresc }}"
+      data:
+        tag: "{{ tag }}"
+        push:
+          interruption-level: time-sensitive
+        actions:
+          - action: "{{ akcja_tak }}"
+            title: Wyślij
+            authenticationRequired: true
+            destructive: true
+          - action: "{{ akcja_nie }}"
+            title: Anuluj
+
+  - alias: Czekaj na decyzję — tylko ten kod, najwyżej 10 minut
+    wait_for_trigger:
+      - trigger: event
+        id: tak
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ akcja_tak }}"
+      - trigger: event
+        id: nie
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ akcja_nie }}"
+    timeout:
+      minutes: 10
+    continue_on_timeout: true
+
+  - alias: Sprzątnij pytanie z ekranu
+    action: notify.mobile_app_iphone
+    continue_on_error: true
+    data:
+      message: clear_notification
+      data:
+        tag: "{{ tag }}"
+
+  - alias: Bez potwierdzenia nie wysyłamy nic
+    if:
+      - condition: template
+        value_template: "{{ not wait.completed or wait.trigger.id != 'tak' }}"
+    then:
+      - action: notify.mobile_app_iphone
+        continue_on_error: true
+        data:
+          title: "Vulcan: nie wysłano"
+          message: >-
+            {{ 'Anulowane.' if (wait.completed and wait.trigger.id == 'nie')
+               else 'Brak potwierdzenia w 10 minut.' }}
+      - stop: Brak potwierdzenia — wiadomość nie została wysłana.
+    else:
+      - alias: Potwierdzone Face ID — wyślij w dzienniku
+        action: vulcan_dom.send_message
+        data:
+          recipient: "{{ adresat }}"
+          subject: "{{ temat }}"
+          message: "{{ tresc }}"
+      - alias: Kopia do wychowawczyni, gdy przełącznik włączony
+        if:
+          - condition: template
+            value_template: "{{ takze_wychowawca | default(false) and (wychowawca | default('', true)) != '' }}"
+        then:
+          - action: vulcan_dom.send_message
+            continue_on_error: true
+            data:
+              recipient: "{{ wychowawca }}"
+              subject: "{{ temat }}"
+              message: "{{ tresc }}"
+      - action: notify.mobile_app_iphone
+        data:
+          title: "Vulcan: prośba wysłana"
+          message: "Do: {{ adresat }} • lekcje {{ zwolnione | map(attribute='lekcja') | join(', ') }}"
+      - action: logbook.log
+        data:
+          name: Vulcan
+          message: >-
+            wysłano prośbę o zwolnienie z lekcji {{ zwolnione | map(attribute='lekcja') | join(', ') }}
+            ({{ dzien }}, {{ powod }}) do {{ adresat }}
