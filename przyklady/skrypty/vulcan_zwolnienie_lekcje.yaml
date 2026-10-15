@@ -1,8 +1,12 @@
 # Zwolnienie z części dnia — wiadomość do nauczyciela ostatniej lekcji, na której uczeń zostaje.
 #
-# Wymaga integracji vulcan_dom w wersji z usługą `schedule` (0.6.0 w górę).
-# Wkleić w Narzędzia deweloperskie → nie; to jest skrypt: Ustawienia → Automatyzacje
-# i sceny → Skrypty → ⋮ → Edytuj w YAML.
+# Wymaga integracji vulcan_dom z usługą `schedule` (0.6.0 w górę).
+#
+# UWAGA: ten skrypt wysyła od razu i nie pyta o potwierdzenie. Zgodę zbiera
+# interfejs — przycisk na dashboardzie z `hold_action` (przytrzymanie) albo panel
+# kiosku z przytrzymaniem 3 s. Wywołany z Narzędzi deweloperskich, z automatyzacji
+# albo przez Assist wyśle wiadomość bez drugiej szansy. Wiadomość trafia do
+# prawdziwego dziennika i nie da się jej cofnąć.
 #
 # Dlaczego adresat bierze się z planu, a nie z listy: wybiera się lekcję, po której
 # uczeń wychodzi, a nie osobę. Dzięki temu nie da się wysłać prośby do przypadkowego
@@ -13,9 +17,9 @@ icon: mdi:door-open
 mode: single
 max_exceeded: silent
 description: >-
-  Prosi nauczyciela ostatniej lekcji, na której uczeń zostaje, o zwolnienie z lekcji
-  późniejszych. Wysyłka dopiero po potwierdzeniu na iPhonie. Wiadomość idzie
-  do prawdziwego dziennika i nie da się jej cofnąć.
+  WYSYŁA OD RAZU. Prosi nauczyciela ostatniej lekcji, na której uczeń zostaje, o
+  zwolnienie z lekcji późniejszych. Potwierdzenie zbiera przycisk w interfejsie,
+  nie ten skrypt. Wiadomość idzie do prawdziwego dziennika i nie da się jej cofnąć.
 
 fields:
   dzien:
@@ -65,24 +69,6 @@ fields:
       text: {}
 
 sequence:
-  # Jednorazowy kod musi powstać ZANIM odczytają go nazwy akcji — blok variables
-  # renderuje klucze po kolei, więc to osobne kroki, nie jedna mapa.
-  - alias: Jednorazowy kod tego uruchomienia
-    variables:
-      nonce: "{{ (range(1, 999999999) | random) ~ '-' ~ (range(1, 999999999) | random) }}"
-  - alias: Nazwy akcji i tag
-    variables:
-      akcja_tak: "VULCAN_ZW_OK_{{ nonce }}"
-      akcja_nie: "VULCAN_ZW_NIE_{{ nonce }}"
-      tag: "vulcan_zw_{{ nonce }}"
-  - alias: Przerwij, gdy kod jednorazowy nie powstał
-    if:
-      - condition: template
-        value_template: "{{ akcja_tak == 'VULCAN_ZW_OK_' or akcja_nie == 'VULCAN_ZW_NIE_' }}"
-    then:
-      - stop: Nie powstał kod jednorazowy — potwierdzenie byłoby nieszczelne.
-        error: true
-
   - alias: Plan dnia z dziennika
     action: vulcan_dom.schedule
     data:
@@ -95,6 +81,7 @@ sequence:
       zwolnione: >-
         {{ plan.lekcje | rejectattr('odwolana')
            | selectattr('lekcja', 'gt', ostatnia_lekcja | int) | list }}
+
   - alias: Czy w ogóle jest o co prosić
     if:
       - condition: template
@@ -106,14 +93,19 @@ sequence:
              else 'Po lekcji ' ~ ostatnia_lekcja ~ ' nie ma już żadnych zajęć — nie ma z czego zwalniać.' }}
         error: true
 
-  - alias: Adresat z planu, sprawdzony w książce adresowej
+  - alias: Adresat z planu
     variables:
       adresat: "{{ zostaje.nauczyciel | default('', true) }}"
+
   - alias: Sprawdź, że nazwisko trafia dokładnie w jedną osobę
+    note: >-
+      Ostatnia bariera przed nieodwracalną wysyłką: lepiej przerwać, niż wysłać
+      prośbę do kogoś, kogo nie umiemy jednoznacznie wskazać.
     action: vulcan_dom.recipients
     data:
       search: "{{ adresat }}"
     response_variable: ksiazka
+
   - alias: Przerwij przy zerze albo kilku trafieniach
     if:
       - condition: template
@@ -128,8 +120,7 @@ sequence:
   - alias: Treść wiadomości
     variables:
       temat: Prośba o zwolnienie z lekcji
-      lista: >-
-        {{ zwolnione | map(attribute='przedmiot') | list | join(', ') }}
+      lista: "{{ zwolnione | map(attribute='przedmiot') | list | join(', ') }}"
       tresc: >-
         Dzień dobry,
 
@@ -143,86 +134,37 @@ sequence:
         Z pozdrowieniami
         Damian Pudło
 
-  - alias: Pytanie z przyciskami na iPhonie
-    # Legacy notify.mobile_app_iphone, bo platforma encyjna notify.send_message
-    # nie przenosi data.actions.
-    action: notify.mobile_app_iphone
+  - alias: Wyślij prośbę w dzienniku
+    note: Krok nieodwracalny. Zgodę zbiera interfejs przed wywołaniem skryptu.
+    action: vulcan_dom.send_message
     data:
-      title: Wysłać prośbę o zwolnienie?
-      message: "Do: {{ adresat }}\n\n{{ tresc }}"
-      data:
-        tag: "{{ tag }}"
-        push:
-          interruption-level: time-sensitive
-        actions:
-          - action: "{{ akcja_tak }}"
-            title: Potwierdź
-            destructive: true
-          - action: "{{ akcja_nie }}"
-            title: Anuluj
+      recipient: "{{ adresat }}"
+      subject: "{{ temat }}"
+      message: "{{ tresc }}"
 
-  - alias: Czekaj na decyzję — tylko ten kod, najwyżej 10 minut
-    wait_for_trigger:
-      - trigger: event
-        id: tak
-        event_type: mobile_app_notification_action
-        event_data:
-          action: "{{ akcja_tak }}"
-      - trigger: event
-        id: nie
-        event_type: mobile_app_notification_action
-        event_data:
-          action: "{{ akcja_nie }}"
-    timeout:
-      minutes: 10
-    continue_on_timeout: true
+  - alias: Kopia do wychowawczyni, gdy przełącznik włączony
+    if:
+      - condition: template
+        value_template: "{{ takze_wychowawca | default(false) and (wychowawca | default('', true)) != '' }}"
+    then:
+      - action: vulcan_dom.send_message
+        continue_on_error: true
+        data:
+          recipient: "{{ wychowawca }}"
+          subject: "{{ temat }}"
+          message: "{{ tresc }}"
 
-  - alias: Sprzątnij pytanie z ekranu
+  - alias: Potwierdzenie faktu na telefon
+    note: Informacja, nie pytanie — wiadomość jest już wysłana.
     action: notify.mobile_app_iphone
     continue_on_error: true
     data:
-      message: clear_notification
-      data:
-        tag: "{{ tag }}"
+      title: "Vulcan: prośba o zwolnienie wysłana"
+      message: "Do: {{ adresat }} • lekcje {{ zwolnione | map(attribute='lekcja') | join(', ') }}"
 
-  - alias: Bez potwierdzenia nie wysyłamy nic
-    if:
-      - condition: template
-        value_template: "{{ not wait.completed or wait.trigger.id != 'tak' }}"
-    then:
-      - action: notify.mobile_app_iphone
-        continue_on_error: true
-        data:
-          title: "Vulcan: nie wysłano"
-          message: >-
-            {{ 'Anulowane.' if (wait.completed and wait.trigger.id == 'nie')
-               else 'Brak potwierdzenia w 10 minut.' }}
-      - stop: Brak potwierdzenia — wiadomość nie została wysłana.
-    else:
-      - alias: Potwierdzone — wyślij w dzienniku
-        action: vulcan_dom.send_message
-        data:
-          recipient: "{{ adresat }}"
-          subject: "{{ temat }}"
-          message: "{{ tresc }}"
-      - alias: Kopia do wychowawczyni, gdy przełącznik włączony
-        if:
-          - condition: template
-            value_template: "{{ takze_wychowawca | default(false) and (wychowawca | default('', true)) != '' }}"
-        then:
-          - action: vulcan_dom.send_message
-            continue_on_error: true
-            data:
-              recipient: "{{ wychowawca }}"
-              subject: "{{ temat }}"
-              message: "{{ tresc }}"
-      - action: notify.mobile_app_iphone
-        data:
-          title: "Vulcan: prośba wysłana"
-          message: "Do: {{ adresat }} • lekcje {{ zwolnione | map(attribute='lekcja') | join(', ') }}"
-      - action: logbook.log
-        data:
-          name: Vulcan
-          message: >-
-            wysłano prośbę o zwolnienie z lekcji {{ zwolnione | map(attribute='lekcja') | join(', ') }}
-            ({{ dzien }}, {{ powod }}) do {{ adresat }}
+  - action: logbook.log
+    data:
+      name: Vulcan
+      message: >-
+        wysłano prośbę o zwolnienie z lekcji {{ zwolnione | map(attribute='lekcja') | join(', ') }}
+        ({{ dzien }}, {{ powod }}) do {{ adresat }}
