@@ -367,6 +367,25 @@ def parse_grade(raw: dict) -> Grade:
     )
 
 
+# Nazwy pola z datą lekcji różnią się między instalacjami Hebe, a rekord niesie też
+# daty techniczne (modyfikacja, synchronizacja), których brać nie wolno.
+DATE_KEYS = ("DateAt", "Date", "Day", "LessonDate", "DayDate")
+DATE_KEYS_ODRZUC = ("modif", "creat", "sync", "deadline", "change")
+
+
+def record_date(raw: dict) -> date | None:
+    """Data rekordu: najpierw znane nazwy pól, potem dowolne pole dat/day poza technicznymi."""
+    for key in DATE_KEYS:
+        if (day := to_date(raw.get(key))):
+            return day
+    for key, value in raw.items():
+        niska = key.lower()
+        if ("date" in niska or "day" in niska) and not any(z in niska for z in DATE_KEYS_ODRZUC):
+            if (day := to_date(value)):
+                return day
+    return None
+
+
 def _flag(obj: dict, *keys: str) -> bool | None:
     """Pierwsza obecna flaga boolowska spośród podanych kluczy; None gdy żadnej nie ma."""
     for key in keys:
@@ -385,7 +404,7 @@ def parse_attendance(raw: dict) -> Attendance | None:
     ze słownikowej nazwy typu. Brak `PresenceType` traktujemy jako obecność: dopóki
     szkoła niczego nie odnotowała, nie ma czego usprawiedliwiać.
     """
-    day = to_date(raw.get("DateAt") or raw.get("Date"))
+    day = record_date(raw)
     if not day:
         return None
     slot = raw.get("TimeSlot") or {}

@@ -227,3 +227,24 @@ def test_widoki_frekwencji():
     # spóźnienie (P75) to obecność
     assert p.attendance_ratio() == 33.3
     assert m.PupilData(pupil_id=1, login_id=2, name="x").attendance_ratio() is None
+
+
+def test_record_date_czyta_rozne_nazwy_pol():
+    """Hebe nazywa pole z datą różnie; parser ma brać datę lekcji, nie techniczną."""
+    assert m.record_date({"DateAt": "2026-10-05"}) == date(2026, 10, 5)
+    assert m.record_date({"Day": {"Date": "2026-10-06", "DateDisplay": "06.10.2026"}}) == date(2026, 10, 6)
+    assert m.record_date({"LessonDate": {"Date": "2026-10-07"}}) == date(2026, 10, 7)
+    # nieznana nazwa, ale wygląda na datę dnia
+    assert m.record_date({"DayDateUtc": "2026-10-08"}) == date(2026, 10, 8)
+    # daty techniczne odrzucamy
+    assert m.record_date({"DateModify": "2026-01-01", "DateCreated": "2026-01-02"}) is None
+    assert m.record_date({"Id": 1}) is None
+
+
+def test_parse_attendance_bierze_date_z_nietypowego_pola():
+    a = m.parse_attendance({"Id": 7, "Day": {"Date": "2026-10-05"}, "LessonClassId": 12,
+                            "TimeSlot": {"Position": 3}, "Subject": {"Name": "Matematyka"}})
+    assert a is not None
+    assert a.day == date(2026, 10, 5)
+    assert a.present is True
+    assert a.to_justify is False

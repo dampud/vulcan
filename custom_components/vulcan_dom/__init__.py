@@ -266,6 +266,9 @@ def _register_services(hass: HomeAssistant) -> None:
             "do": do.isoformat(),
             "surowych_rekordow": len(surowe or []),
             "rozpoznanych": len(wpisy),
+            # same nazwy pól, bez wartości — pozwalają dopasować parser do kształtu,
+            # jaki wystawia konkretna szkoła, nie wynosząc treści dziennika
+            "pola_rekordu": sorted({k for r in (surowe or []) if isinstance(r, dict) for k in r}),
             "rodzaje": sorted({a.kind for a in wpisy if a.kind}),
             "bez_lesson_class_id": sum(1 for a in wpisy if a.lesson_class_id is None),
             "wpisy": [
