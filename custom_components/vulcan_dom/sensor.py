@@ -233,5 +233,8 @@ class VulcanLastSync(VulcanEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        err = self.coordinator.last_exception
-        return {"ok": self.coordinator.last_update_success, "blad": str(err) if err else None}
+        # last_exception trzyma ostatni wyjątek także po udanym odświeżeniu, więc bez
+        # tego warunku sensor straszyłby błędem sprzed godzin, gdy wszystko już działa
+        ok = self.coordinator.last_update_success
+        err = None if ok else self.coordinator.last_exception
+        return {"ok": ok, "blad": str(err) if err else None}

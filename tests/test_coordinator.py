@@ -138,7 +138,9 @@ async def test_odmowa_certyfikatu_prowadzi_do_ponownej_rejestracji(hass, entry, 
 
 
 async def test_blad_sieci_nie_wywala_wpisu(hass, entry, setup_entry):
-    setup_entry.fail["mobile/exam/byPupil"] = (502, 0)
+    """Plan lekcji jest twardy: bez niego dane ucznia nie mają sensu, więc błąd tu
+    musi zgłosić nieudane odświeżenie. Pozostałe kategorie są izolowane osobno."""
+    setup_entry.fail["mobile/schedule/withchanges/byPupil"] = (502, 0)
     await odswiez(hass, entry)
     assert entry.state is ConfigEntryState.LOADED
     assert entry.runtime_data.last_update_success is False
@@ -203,3 +205,14 @@ async def test_pierwsze_pobranie_pomija_skrzynke(hass, entry, setup_entry):
     coord.enable_messages()
     await odswiez(hass, entry)
     assert len(setup_entry.path_calls(sciezka)) > przed
+
+
+async def test_bledna_kategoria_nie_wywraca_odswiezenia(hass, entry, setup_entry):
+    """Serwer potrafi oddać niepoprawną odpowiedź dla jednego zasobu."""
+    setup_entry.fail["mobile/grade/byPupil"] = (502, 0)
+    await odswiez(hass, entry)
+    assert entry.runtime_data.last_update_success is True
+    uczen = entry.runtime_data.data[dane.LOGIN_ID]
+    assert uczen.lessons and uczen.attendance   # plan i frekwencja nietknięte
+    assert uczen.grades == []                   # same oceny puste
+    assert hass.states.get("sensor.ala_testowa_ostatnia_synchronizacja").attributes["blad"] is None

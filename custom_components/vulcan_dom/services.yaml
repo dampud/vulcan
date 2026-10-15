@@ -23,6 +23,15 @@ justify_absence:
     reason:
       required: true
       selector: {text: {multiline: true}}
+attendance:
+  fields:
+    pupil:
+      selector: {text: {}}
+    date_from:
+      required: true
+      selector: {date: {}}
+    date_to:
+      selector: {date: {}}
 read_messages:
   fields:
     pupil:
