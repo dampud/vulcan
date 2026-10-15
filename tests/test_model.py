@@ -248,3 +248,33 @@ def test_parse_attendance_bierze_date_z_nietypowego_pola():
     assert a.day == date(2026, 10, 5)
     assert a.present is True
     assert a.to_justify is False
+
+
+def _obecnosc(nazwa: str, **flagi):
+    return m.parse_attendance({
+        "Id": 1, "DayAt": {"Date": "2026-09-29"}, "LessonClassId": 5,
+        "TimeSlot": {"Position": 2}, "Subject": {"Name": "Matematyka"},
+        "PresenceType": {"Name": nazwa, **flagi},
+    })
+
+
+@pytest.mark.parametrize(
+    ("nazwa", "do_usprawiedliwienia"),
+    [
+        ("nieob. uspraw.", False),      # skrót, jakiego używa szkoła Emilki
+        ("nieobecność", True),
+        ("nieob. nieuspraw.", True),
+        ("spóźn. uspraw.", False),
+        ("spóźnienie", True),
+        ("obecność", False),
+    ],
+)
+def test_typ_obecnosci_rozpoznany_ze_skroconej_nazwy(nazwa, do_usprawiedliwienia):
+    """Bez flag w PresenceType decyduje nazwa typu, a szkoły ją skracają."""
+    assert _obecnosc(nazwa).to_justify is do_usprawiedliwienia
+
+
+def test_flagi_biora_gore_nad_nazwa():
+    """Gdy szkoła wystawia flagi, nazwa typu jest tylko opisem."""
+    a = _obecnosc("nieobecność", Absence=True, AbsenceJustified=True)
+    assert a.absent is True and a.justified is True and a.to_justify is False

@@ -417,14 +417,20 @@ def parse_attendance(raw: dict) -> Attendance | None:
     late = _flag(pres, "Late", "Tardy")
     excused_late = _flag(pres, "LateExcused", "JustifiedLate")
 
+    # Szkoły skracają nazwy typów ("nieob. uspraw."), więc dopasowujemy rdzenie, nie
+    # pełne słowa, i odcinamy zaprzeczenie osobno — inaczej "uspraw." nie trafia w
+    # "usprawiedliw" i usprawiedliwiona nieobecność ląduje na liście do załatwienia.
+    uspr = ("uspraw" in niska or "justif" in niska) and not any(
+        z in niska for z in ("nieuspraw", "nie uspraw", "unjustif")
+    )
     if absent is None:
-        absent = any(w in niska for w in ("nieobecn", "absen"))
+        absent = any(w in niska for w in ("nieobecn", "nieob", "absen"))
     if justified is None:
-        justified = absent and "usprawiedliw" in niska and "nieusprawiedliw" not in niska
+        justified = absent and uspr
     if late is None:
         late = any(w in niska for w in ("spóźn", "spozn", "late"))
     if excused_late is None:
-        excused_late = late and "usprawiedliw" in niska and "nieusprawiedliw" not in niska
+        excused_late = late and uspr
 
     return Attendance(
         key=f"P{raw.get('Id')}-{day.isoformat()}",
