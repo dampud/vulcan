@@ -285,6 +285,8 @@ def _register_services(hass: HomeAssistant) -> None:
                     "nieobecny": a.absent,
                     "usprawiedliwiona": a.justified,
                     "spoznienie": a.late,
+                    "wniosek_w_toku": a.justification_pending,
+                    "stan_wniosku": a.justification_status,
                     "do_usprawiedliwienia": a.to_justify,
                 }
                 for a in sorted(wpisy, key=lambda x: (x.day, x.position or 0))
