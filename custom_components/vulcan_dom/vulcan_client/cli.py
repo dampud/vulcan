@@ -5,9 +5,13 @@
   vulcan fetch RODZAJ          surowy JSON: schedule|exams|homework|grades|notes|lessons|
                                messages|addressbook|lucky|vacations
   vulcan schema RODZAJ         same pola, typy i maski dat — bez treści
+  vulcan parse RODZAJ          ile rekordów rozpoznaje parser integracji — bez treści
+  vulcan fixture RODZAJ        zamaskowane rekordy do testów (bez treści dziennika)
   vulcan send-message ...      podgląd treści; wysyłka dopiero z --send
   vulcan justify ...           podgląd; wysyłka dopiero z --send
   vulcan unregister            wyrejestrowanie urządzenia (z --yes)
+
+Zakres dni: --back/--ahead liczone od dziś albo wprost --from/--to (RRRR-MM-DD).
 
 Plik z kluczem: $VULCAN_CREDENTIAL albo ~/.config/vulcan/credential.json (0600).
 Nic z tego pliku nie trafia na wyjście.
@@ -20,6 +24,7 @@ import asyncio
 import json
 import os
 import sys
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -95,10 +100,18 @@ KINDS = ("schedule", "exams", "homework", "grades", "notes", "lessons", "message
          "lucky", "vacations")
 
 
-async def fetch_kind(api: VulcanApi, acc: dict, kind: str, back: int, ahead: int) -> Any:
+def zakres(args: argparse.Namespace) -> tuple[date, date]:
+    """Dni z --from/--to, a gdy ich nie ma — z --back/--ahead liczonych od dziś."""
     today = date.today()
-    d_from = today - timedelta(days=back)
-    d_to = today + timedelta(days=ahead)
+    d_from = date.fromisoformat(args.d_from) if getattr(args, "d_from", None) else today - timedelta(days=args.back)
+    d_to = date.fromisoformat(args.d_to) if getattr(args, "d_to", None) else today + timedelta(days=args.ahead)
+    if d_to < d_from:
+        raise SystemExit("--to jest wcześniejsze niż --from")
+    return d_from, d_to
+
+
+async def fetch_kind(api: VulcanApi, acc: dict, kind: str, d_from: date, d_to: date) -> Any:
+    today = date.today()
     rest = acc["Unit"]["RestURL"]
     pid = acc["Pupil"]["Id"]
     box = (acc.get("MessageBox") or {}).get("GlobalKey")
@@ -132,7 +145,7 @@ async def fetch_kind(api: VulcanApi, acc: dict, kind: str, back: int, ahead: int
 async def cmd_fetch(args: argparse.Namespace) -> None:
     async with VulcanApi(Credential.load(args.credential)) as api:
         acc = pick(await api.accounts(), args.pupil)
-        out = await fetch_kind(api, acc, args.kind, args.back, args.ahead)
+        out = await fetch_kind(api, acc, args.kind, *zakres(args))
     dump(out)
 
 
@@ -140,7 +153,7 @@ async def cmd_schema(args: argparse.Namespace) -> None:
     """Kształt odpowiedzi — pola, typy, maski. Żadnych treści (chyba że --values)."""
     async with VulcanApi(Credential.load(args.credential)) as api:
         acc = pick(await api.accounts(), args.pupil)
-        out = await fetch_kind(api, acc, args.kind, args.back, args.ahead)
+        out = await fetch_kind(api, acc, args.kind, *zakres(args))
     if args.values:
         counts = schema.values_at(out, args.values)
         if not counts:
@@ -150,6 +163,106 @@ async def cmd_schema(args: argparse.Namespace) -> None:
             print(f"  {n:>5} × {value}")
         return
     print(schema.render(args.kind, out))
+
+
+PARSERY = {
+    "lessons": "parse_attendance",
+    "schedule": "parse_lesson",
+    "exams": "parse_exam",
+    "homework": "parse_homework",
+    "grades": "parse_grade",
+    "notes": "parse_note",
+    "messages": "parse_message",
+}
+
+
+def wczytaj_model():
+    """Warstwa normalizacji integracji, wczytana z pliku obok klienta.
+
+    Nie `from .. import model`: pakiet instaluje się jako samodzielny `vulcan_client`,
+    a `custom_components.vulcan_dom.__init__` ciągnie Home Assistanta. Ładujemy sam
+    plik (model nie importuje HA) i rejestrujemy go w `sys.modules`, bo dataclasses
+    sięgają po `__module__` przy budowie klas.
+    """
+    import importlib.util  # noqa: PLC0415
+
+    sciezka = Path(__file__).resolve().parent.parent / "model.py"
+    if not sciezka.exists():
+        raise SystemExit(f"nie widzę {sciezka} — `parse` działa w klonie repozytorium, nie po samej instalacji klienta")
+    spec = importlib.util.spec_from_file_location("vulcan_model", sciezka)
+    model = importlib.util.module_from_spec(spec)
+    sys.modules["vulcan_model"] = model
+    spec.loader.exec_module(model)
+    return model
+
+
+async def cmd_parse(args: argparse.Namespace) -> None:
+    """Ile z tego, co zwraca serwer, parser w ogóle rozpoznaje.
+
+    Pętla „popraw parser → sprawdź" bez restartu Home Assistanta. Wypisujemy liczby
+    i nazwy pól, nigdy treści: dokładnie to, czego brakowało, gdy parse_attendance
+    po cichu odrzucał wszystkie lekcje przez nieznaną nazwę pola z datą.
+    """
+    if args.kind not in PARSERY:
+        raise SystemExit(f"dla '{args.kind}' nie ma parsera (są: {', '.join(sorted(PARSERY))})")
+    model = wczytaj_model()
+    parser = getattr(model, PARSERY[args.kind])
+    async with VulcanApi(Credential.load(args.credential)) as api:
+        acc = pick(await api.accounts(), args.pupil)
+        surowe = await fetch_kind(api, acc, args.kind, *zakres(args))
+
+    items = surowe if isinstance(surowe, list) else [surowe]
+    wyniki, bledy = [], Counter()
+    for rec in items:
+        try:
+            wyniki.append(parser(rec))
+        except Exception as err:  # noqa: BLE001 — chcemy policzyć, nie wywrócić się
+            bledy[type(err).__name__] += 1
+            wyniki.append(None)
+    rozpoznane = [w for w in wyniki if w is not None]
+
+    print(f"{args.kind}: rekordów {len(items)}, rozpoznanych {len(rozpoznane)}, odrzuconych {len(items) - len(rozpoznane)}")
+    for nazwa, ile in bledy.most_common():
+        print(f"  wyjątek {nazwa}: {ile}×")
+    if len(rozpoznane) < len(items):
+        odrzucone = [r for r, w in zip(items, wyniki, strict=True) if w is None and isinstance(r, dict)]
+        pola = sorted({k for r in odrzucone for k in r})
+        print("  pola odrzuconych rekordów: " + (", ".join(pola) or "brak"))
+    if args.pola and rozpoznane:
+        print("  pola rozpoznanych obiektów:")
+        for nazwa in sorted(vars(rozpoznane[0])):
+            ile = sum(1 for w in rozpoznane if getattr(w, nazwa, None) not in (None, "", False))
+            print(f"    {nazwa:<22} niepustych {ile}/{len(rozpoznane)}")
+
+
+async def cmd_fixture(args: argparse.Namespace) -> None:
+    """Zamaskowane rekordy do testów: kształt zachowany, treść nie.
+
+    Teksty idą przez maskę ze `schema` (cyfra→N, wielka→A, mała→a), więc daty i
+    identyfikatory zachowują format, a nazwiska, oceny i uwagi nie wychodzą z domu.
+    Daty zostawiamy czytelne tylko z --daty, gdy test ma zależeć od konkretnego dnia.
+    """
+    async with VulcanApi(Credential.load(args.credential)) as api:
+        acc = pick(await api.accounts(), args.pupil)
+        surowe = await fetch_kind(api, acc, args.kind, *zakres(args))
+    items = surowe if isinstance(surowe, list) else [surowe]
+    dump([maskuj(r, args.daty) for r in items[: args.limit]])
+
+
+DATA_MASKA = "NNNN-NN-NN"
+
+
+def maskuj(value: Any, daty: bool) -> Any:
+    """Rekurencyjnie maskuje teksty; liczby i wartości logiczne zostawia bez zmian."""
+    if isinstance(value, dict):
+        return {k: maskuj(v, daty) for k, v in value.items()}
+    if isinstance(value, list):
+        return [maskuj(v, daty) for v in value]
+    if isinstance(value, str):
+        if daty and schema.mask(value[:10]) == DATA_MASKA:
+            return value
+        return schema.mask(value)
+    return value
 
 
 async def cmd_send_message(args: argparse.Namespace) -> None:
@@ -227,6 +340,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--pupil", type=int)
     f.add_argument("--back", type=int, default=7, help="dni wstecz")
     f.add_argument("--ahead", type=int, default=14, help="dni naprzód")
+    f.add_argument("--from", dest="d_from", metavar="RRRR-MM-DD")
+    f.add_argument("--to", dest="d_to", metavar="RRRR-MM-DD")
     f.set_defaults(func=cmd_fetch)
 
     s = sub.add_parser("schema", help="pola i typy odpowiedzi, bez treści")
@@ -234,9 +349,32 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--pupil", type=int)
     s.add_argument("--back", type=int, default=7, help="dni wstecz")
     s.add_argument("--ahead", type=int, default=14, help="dni naprzód")
+    s.add_argument("--from", dest="d_from", metavar="RRRR-MM-DD")
+    s.add_argument("--to", dest="d_to", metavar="RRRR-MM-DD")
     s.add_argument("--values", metavar="ŚCIEŻKA",
                    help="rozkład wartości jednej ścieżki, np. '[].PresenceType.Name' (pokazuje treść!)")
     s.set_defaults(func=cmd_schema)
+
+    pa = sub.add_parser("parse", help="ile rekordów rozpoznaje parser integracji")
+    pa.add_argument("kind", choices=sorted(PARSERY))
+    pa.add_argument("--pupil", type=int)
+    pa.add_argument("--back", type=int, default=7, help="dni wstecz")
+    pa.add_argument("--ahead", type=int, default=14, help="dni naprzód")
+    pa.add_argument("--from", dest="d_from", metavar="RRRR-MM-DD")
+    pa.add_argument("--to", dest="d_to", metavar="RRRR-MM-DD")
+    pa.add_argument("--pola", action="store_true", help="ile pól wyniku jest wypełnionych")
+    pa.set_defaults(func=cmd_parse)
+
+    fx = sub.add_parser("fixture", help="zamaskowane rekordy do testów")
+    fx.add_argument("kind", choices=KINDS)
+    fx.add_argument("--pupil", type=int)
+    fx.add_argument("--back", type=int, default=7, help="dni wstecz")
+    fx.add_argument("--ahead", type=int, default=14, help="dni naprzód")
+    fx.add_argument("--from", dest="d_from", metavar="RRRR-MM-DD")
+    fx.add_argument("--to", dest="d_to", metavar="RRRR-MM-DD")
+    fx.add_argument("--limit", type=int, default=20)
+    fx.add_argument("--daty", action="store_true", help="zostaw prawdziwe daty (same daty, nic więcej)")
+    fx.set_defaults(func=cmd_fixture)
 
     m = sub.add_parser("send-message")
     m.add_argument("--pupil", type=int)
