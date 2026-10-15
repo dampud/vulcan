@@ -71,6 +71,9 @@ def _attendance_attrs(p: m.PupilData) -> dict[str, Any]:
         "do_usprawiedliwienia": [_att_entry(a) for a in czeka[:MAX_LIST]],
         "spoznienia": sum(1 for a in czeka if a.late),
         "nieobecnosci": sum(1 for a in czeka if a.absent),
+        # wnioski wysłane i nierozpatrzone nie są już „do usprawiedliwienia", ale
+        # warto je widzieć — inaczej znikają z pola widzenia aż do decyzji wychowawcy
+        "wnioski_w_toku": sum(1 for a in p.attendance if a.justification_pending),
         "frekwencja_procent": p.attendance_ratio(),
         "lekcji_w_oknie": len(p.attendance),
         # słownik typów obecności tej szkoły — same nazwy kategorii, bez treści dziennika.

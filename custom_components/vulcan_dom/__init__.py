@@ -50,6 +50,7 @@ SCHEMA_ATTENDANCE = vol.Schema({
     vol.Required("date_from"): cv.date,
     vol.Optional("date_to"): cv.date,
 })
+SCHEMA_SCHEDULE = vol.Schema({**BASE_SCHEMA, vol.Required("date"): cv.date})
 
 type VulcanConfigEntry = ConfigEntry[VulcanCoordinator]
 
@@ -271,6 +272,9 @@ def _register_services(hass: HomeAssistant) -> None:
             "pola_rekordu": sorted({k for r in (surowe or []) if isinstance(r, dict) for k in r}),
             "rodzaje": sorted({a.kind for a in wpisy if a.kind}),
             "bez_lesson_class_id": sum(1 for a in wpisy if a.lesson_class_id is None),
+            # Stany wniosków o usprawiedliwienie, jakimi posługuje się ta szkoła —
+            # sama etykieta statusu, bez powodu wpisanego przez rodzica.
+            "statusy": sorted({m.justification_label(r) for r in (surowe or []) if isinstance(r, dict)}),
             "wpisy": [
                 {
                     "data": a.day.isoformat(),
@@ -281,9 +285,44 @@ def _register_services(hass: HomeAssistant) -> None:
                     "nieobecny": a.absent,
                     "usprawiedliwiona": a.justified,
                     "spoznienie": a.late,
+                    "wniosek_w_toku": a.justification_pending,
+                    "stan_wniosku": a.justification_status,
                     "do_usprawiedliwienia": a.to_justify,
                 }
                 for a in sorted(wpisy, key=lambda x: (x.day, x.position or 0))
+            ],
+        }
+
+    async def schedule(call: ServiceCall) -> ServiceResponse:
+        """Plan jednego dnia: numer lekcji, godziny, przedmiot, nauczyciel.
+
+        Potrzebny tam, gdzie trzeba wskazać konkretną lekcję i jej nauczyciela —
+        na przykład przy zwolnieniu z części dnia, które trafia do nauczyciela
+        ostatniej lekcji, na jakiej uczeń zostaje.
+        """
+        coord, acc = _target(hass, call)
+        rest, pid = acc["Unit"]["RestURL"], acc["Pupil"]["Id"]
+        dzien: date = call.data["date"]
+        try:
+            surowe = await coord.api.schedule(rest, pid, dzien, dzien)
+        except (ApiError, TransportError) as err:
+            raise HomeAssistantError(str(err)) from err
+        lekcje = [l for l in m.parse_all(m.parse_lesson, surowe) if l.day == dzien]
+        return {
+            "data": dzien.isoformat(),
+            "lekcji": len(lekcje),
+            "lekcje": [
+                {
+                    "lekcja": l.position,
+                    "od": l.start.strftime("%H:%M") if l.start else None,
+                    "do": l.end.strftime("%H:%M") if l.end else None,
+                    "przedmiot": l.subject,
+                    "nauczyciel": l.teacher,
+                    "sala": l.room,
+                    "odwolana": l.cancelled,
+                    "zmiana": l.changed,
+                }
+                for l in sorted(lekcje, key=lambda x: (x.position or 0, x.start or x.day))
             ],
         }
 
@@ -301,5 +340,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "read_messages", read_messages, SCHEMA_READ_MESSAGES,
                                  supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "attendance", attendance, SCHEMA_ATTENDANCE,
+                                 supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "schedule", schedule, SCHEMA_SCHEDULE,
                                  supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "refresh", refresh, SCHEMA_REFRESH)

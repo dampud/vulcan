@@ -1,0 +1,54 @@
+# Przyciski zwolnienia na dashboardzie — potwierdzenie przez PRZYTRZYMANIE.
+#
+# Skrypty zwolnienia wysyłają od razu, więc potwierdzenie musi być tutaj:
+# `tap_action: none` + `hold_action` sprawia, że zwykłe dotknięcie nic nie robi,
+# a wiadomość idzie dopiero po przytrzymaniu kafla.
+#
+# Home Assistant uznaje za przytrzymanie naciśnięcie dłuższe niż ok. pół sekundy
+# i nie pokazuje paska postępu — nie da się tu ustawić własnych 3 sekund. Jeśli
+# chcesz pełne trzy sekundy z wypełniającym się paskiem, to robi się w panelu
+# kiosku (HTML), nie na karcie Lovelace.
+#
+# Wkleić w dashboardzie: ⋮ → Edytuj → ⋮ → Edytor nieprzetworzonej konfiguracji.
+
+type: grid
+columns: 1
+square: false
+cards:
+  - type: markdown
+    content: >-
+      ### Zwolnienia
+
+      Dotknięcie nic nie wyśle — **przytrzymaj** kafel, żeby wysłać wiadomość do
+      nauczyciela. Wysyłki nie da się cofnąć.
+
+  - type: tile
+    entity: script.vulcan_zwolnienie_wf
+    name: Zwolnienie z WF (przytrzymaj)
+    icon: mdi:basketball
+    hide_state: true
+    tap_action:
+      action: none
+    icon_tap_action:
+      action: none
+    hold_action:
+      action: perform-action
+      perform_action: script.vulcan_zwolnienie_wf
+      data:
+        zakres: w dniu dzisiejszym
+        powod: z powodu niedyspozycji
+
+  - type: tile
+    entity: script.vulcan_zwolnienie_lekcje
+    name: Zwolnienie z lekcji (przytrzymaj)
+    icon: mdi:door-open
+    hide_state: true
+    tap_action:
+      action: none
+    icon_tap_action:
+      action: none
+    # Bez `data` HA pokaże okno z polami skryptu (dzień, ostatnia lekcja, powód)
+    # i wyśle dopiero po ich wypełnieniu i zatwierdzeniu.
+    hold_action:
+      action: perform-action
+      perform_action: script.vulcan_zwolnienie_lekcje

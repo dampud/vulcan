@@ -278,3 +278,51 @@ def test_flagi_biora_gore_nad_nazwa():
     """Gdy szkoła wystawia flagi, nazwa typu jest tylko opisem."""
     a = _obecnosc("nieobecność", Absence=True, AbsenceJustified=True)
     assert a.absent is True and a.justified is True and a.to_justify is False
+
+
+@pytest.mark.parametrize(
+    ("surowy", "etykieta"),
+    [
+        ({}, "brak"),
+        ({"JustificationStatus": None}, "brak"),
+        ({"JustificationStatus": True}, "tak"),
+        ({"JustificationStatus": False}, "nie"),
+        ({"JustificationStatus": "Oczekuje"}, "Oczekuje"),
+        ({"JustificationStatus": {"Name": "Zaakceptowane"}}, "Zaakceptowane"),
+        ({"JustificationStatus": {"Symbol": "ACC"}}, "ACC"),
+        # słownik bez nazwy: same nazwy pól, nigdy wartości
+        ({"JustificationStatus": {"Id": 3, "Powod": "grypa"}}, "Id+Powod"),
+    ],
+)
+def test_justification_label_nie_wynosi_tresci(surowy, etykieta):
+    assert m.justification_label(surowy) == etykieta
+
+
+def _lekcja(nazwa: str, status, **flagi):
+    return m.parse_attendance({
+        "Id": 1, "DayAt": {"Date": "2026-10-05"}, "LessonClassId": 9,
+        "TimeSlot": {"Position": 2}, "Subject": {"Name": "Biologia"},
+        "JustificationStatus": status,
+        "PresenceType": {"Name": nazwa, "Absence": True, **flagi},
+    })
+
+
+@pytest.mark.parametrize(
+    ("opis", "nazwa", "status", "flagi", "do_usprawiedliwienia"),
+    [
+        # trzy stany sprawdzone na żywym dzienniku 15.10.2026
+        ("zaakceptowany", "nieob. uspraw.", None, {"AbsenceJustified": True}, False),
+        ("wniosek wisi", "nieobecność", 0, {}, False),
+        ("nic niewysłane", "nieobecność", None, {}, True),
+        # nieznana wartość statusu: wolimy nie wysłać drugi raz
+        ("inny status", "nieobecność", 2, {}, False),
+    ],
+)
+def test_wniosek_w_toku_nie_jest_do_usprawiedliwienia(opis, nazwa, status, flagi, do_usprawiedliwienia):
+    assert _lekcja(nazwa, status, **flagi).to_justify is do_usprawiedliwienia
+
+
+def test_stan_wniosku_widoczny_do_podgladu():
+    a = _lekcja("nieobecność", 0)
+    assert a.justification_pending is True
+    assert a.justification_status == "0"
