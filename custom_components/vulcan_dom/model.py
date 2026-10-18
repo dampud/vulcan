@@ -421,18 +421,28 @@ def justification_label(raw: dict) -> str:
     return str(value).strip() or "brak"
 
 
-def justification_pending(raw: dict) -> bool:
+def justification_pending(raw: dict, justified: bool = False) -> bool:
     """Czy na tę lekcję wisi nierozpatrzony wniosek o usprawiedliwienie.
 
-    Sprawdzone na trzech znanych dniach: wniosek oczekujący ma `JustificationStatus`
-    równe 0, a dzień zaakceptowany i dzień bez wniosku mają tam `null` — po decyzji
-    wychowawcy pole się czyści, a stan widać już w typie obecności. Każdą inną
-    wartość też uznajemy za wniosek w toku: jeśli szkoła zacznie oznaczać nią
-    odrzucenie, wolimy nie wysłać drugi raz niż zasypać wychowawcę powtórkami.
-    Stan jest widoczny w `justification_status`, więc taki przypadek da się wyłapać.
+    `JustificationStatus` ma trzy stany, sprawdzone na żywych danych 18.10.2026:
+    `0` — wniosek czeka na wychowawcę; `1` — wniosek zatwierdzony (typ obecności
+    zmienia się wtedy na „nieob. uspraw.”, a flaga usprawiedliwienia na prawdę);
+    `null` — wniosku przez aplikację nie było (dzień usprawiedliwiony inaczej albo
+    wcale). Wcześniej zakładaliśmy, że pole czyści się po decyzji — nieprawda,
+    zostaje z wartością 1, więc liczenie „cokolwiek niepustego = w toku” wrzucało
+    zatwierdzone do czekających.
+
+    Rozstrzyga więc flaga usprawiedliwienia, nie sama liczba: wniosek jest w toku,
+    gdy status istnieje, a nieobecność wciąż nie jest usprawiedliwiona. Działa też,
+    gdy szkoła oznacza stany innymi liczbami, a nieznana wartość przy wciąż
+    nieusprawiedliwionej nieobecności nadal blokuje powtórną wysyłkę — wolimy nie
+    wysłać drugi raz niż zasypać wychowawcę. Surowa wartość jest w
+    `justification_status`, więc taki przypadek da się wyłapać.
     """
     value = raw.get("JustificationStatus")
-    return value is not None and value is not False
+    if value is None or value is False:
+        return False
+    return not justified
 
 
 def type_or_blank(value: dict) -> str:
@@ -498,7 +508,7 @@ def parse_attendance(raw: dict) -> Attendance | None:
         late=bool(late),
         excused_late=bool(excused_late),
         lesson_class_id=raw.get("LessonClassId"),
-        justification_pending=justification_pending(raw),
+        justification_pending=justification_pending(raw, bool(justified)),
         justification_status=justification_label(raw),
     )
 
