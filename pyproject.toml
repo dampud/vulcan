@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vulcan-client"
-version = "0.6.1"
+version = "0.6.2"
 description = "Nieoficjalny klient API mobilnego eduVULCAN + integracja Home Assistant"
 readme = "README.md"
 license = "AGPL-3.0-only"

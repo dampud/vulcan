@@ -326,3 +326,29 @@ def test_stan_wniosku_widoczny_do_podgladu():
     a = _lekcja("nieobecność", 0)
     assert a.justification_pending is True
     assert a.justification_status == "0"
+
+
+@pytest.mark.parametrize(
+    ("opis", "nazwa", "status", "usprawiedliwiona", "w_toku", "do_usprawiedliwienia"),
+    [
+        # stany zmierzone na żywym dzienniku 18.10.2026
+        ("wniosek czeka", "nieobecność", 0, False, True, False),
+        ("wniosek zatwierdzony", "nieob. uspraw.", 1, True, False, False),
+        ("usprawiedliwiona bez wniosku", "nieob. uspraw.", None, True, False, False),
+        ("nic nie wysłano", "nieobecność", None, False, False, True),
+        # nieznana wartość przy wciąż nieusprawiedliwionej: blokujemy powtórną wysyłkę
+        ("nieznany status", "nieobecność", 7, False, True, False),
+    ],
+)
+def test_stan_wniosku_rozstrzyga_flaga_nie_liczba(
+    opis, nazwa, status, usprawiedliwiona, w_toku, do_usprawiedliwienia
+):
+    """JustificationStatus zostaje z wartością 1 po zatwierdzeniu, nie znika."""
+    a = m.parse_attendance({
+        "Id": 1, "DayAt": {"Date": "2026-10-05"}, "LessonClassId": 9,
+        "TimeSlot": {"Position": 2}, "Subject": {"Name": "Biologia"},
+        "JustificationStatus": status,
+        "PresenceType": {"Name": nazwa, "Absence": True, "AbsenceJustified": usprawiedliwiona},
+    })
+    assert a.justification_pending is w_toku
+    assert a.to_justify is do_usprawiedliwienia
