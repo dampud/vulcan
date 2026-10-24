@@ -113,9 +113,9 @@ body {
   padding: 7px 0; border-bottom: 1px solid var(--linia);
 }
 .przedmiot:last-child { border-bottom: 0; }
-.przedmiot .nazwa { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.przedmiot .nazwa { flex: 1; min-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .przedmiot .sr { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 2.6em; text-align: right; }
-.oceny { display: flex; gap: 4px; flex-wrap: wrap; }
+.oceny { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
 .ocena {
   display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px;
   border-radius: 7px; font-size: .84rem; font-weight: 600;

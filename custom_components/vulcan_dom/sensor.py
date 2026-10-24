@@ -110,12 +110,15 @@ def _grades_attrs(p: m.PupilData) -> dict[str, Any]:
         {
             "przedmiot": subject,
             "srednia": m.weighted_average(grades),
+            "skala": m.grade_scale(grades),
             "liczba": len(grades),
             "oceny": [_grade_entry(g) for g in grades[-MAX_GRADES:]],
         }
         for subject, grades in p.grades_by_subject().items()
     ]
     return {
+        "skala": p.main_scale(),
+        "srednie": p.averages(),
         "liczba_ocen": len(p.grades),
         "bez_wartosci": sum(1 for g in p.grades if g.numeric is None),
         "wartosc_z_serwera": sum(1 for g in p.grades if g.numeric_from_api),
