@@ -56,7 +56,11 @@ def _short(text: str | None) -> str:
 
 
 class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
-    """Dane wszystkich uczniów z jednego konta (klucz: LoginId)."""
+    """Dane wszystkich uczniów z jednego konta (klucz: Pupil.Id).
+
+    Nie LoginId: to identyfikator konta logowania, a rodzic z kilkorgiem dzieci w tej
+    samej szkole ma jeden login dla wszystkich — klucz po LoginId zlewał dzieci w jedno.
+    """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, api: VulcanApi) -> None:
         minutes = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -107,7 +111,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             raise ConfigEntryAuthFailed(f"urządzenie odrzucone przez eduVULCAN: {err}") from err
         except (TransportError, ApiError) as err:
             raise UpdateFailed(str(err)) from err
-        data = {p.login_id: p for p in pupils}
+        data = {p.pupil_id: p for p in pupils}
         self.last_sync = dt_util.utcnow()
         await self._detect_changes(data)
         return data
@@ -140,7 +144,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
                 [],
             ),
             self._osobno("uwagi", self.api.notes(rest, pid), []),
-            self._fetch_messages_safe(rest, pid, login_id, box),
+            self._fetch_messages_safe(rest, pid, box),
             self._osobno("frekwencja", self.api.lessons(rest, pid, f_from, f_to), []),
         )
 
@@ -186,7 +190,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             _LOGGER.warning("Nie udało się pobrać: %s (%s) — reszta danych bez zmian", nazwa, err)
             return awaryjne
 
-    async def _fetch_messages_safe(self, rest: str, pid: int, login_id: int, box: str | None) -> list[m.Message]:
+    async def _fetch_messages_safe(self, rest: str, pid: int, box: str | None) -> list[m.Message]:
         """Skrzynka nie może przewrócić całej integracji.
 
         Jest największa i najwolniejsza ze wszystkich kategorii, a plan lekcji, oceny i
@@ -197,15 +201,15 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         if self._skip_messages:
             return []
         try:
-            return await self._fetch_messages(rest, pid, login_id, box)
+            return await self._fetch_messages(rest, pid, box)
         except (ApiError, TransportError) as err:
             _LOGGER.warning("Nie udało się pobrać skrzynki (%s) — pozostałe dane bez zmian", err)
             return sorted(
-                (self._messages.get(login_id) or {}).values(),
+                (self._messages.get(pid) or {}).values(),
                 key=lambda x: (x.sent is not None, x.sent),
             )
 
-    async def _fetch_messages(self, rest: str, pid: int, login_id: int, box: str | None) -> list[m.Message]:
+    async def _fetch_messages(self, rest: str, pid: int, box: str | None) -> list[m.Message]:
         """Pełne pobranie raz na dobę, poza tym tylko to, co się zmieniło od ostatniego razu.
 
         Skrzynka bywa na tysiące wiadomości, a przyrost zwraca też te, którym zmienił się
@@ -214,21 +218,21 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         if not box:
             return []
         now = dt_util.now()
-        since = self._messages_synced.get(login_id)
+        since = self._messages_synced.get(pid)
         full = since is None or (now - since) >= MESSAGES_FULL_RESYNC
         # pełne pobranie sięga MESSAGES_HISTORY wstecz, nie po całą historię konta
         od = now - MESSAGES_HISTORY if full else since - MESSAGES_OVERLAP
         raw = await self.api.messages_received(rest, pid, box, since=od, max_pages=MESSAGES_MAX_PAGES)
-        store = {} if full else dict(self._messages.get(login_id) or {})
+        store = {} if full else dict(self._messages.get(pid) or {})
         for msg in m.parse_all(m.parse_message, raw):
             store[msg.key] = msg
-        self._messages[login_id] = store
-        self._messages_synced[login_id] = now
+        self._messages[pid] = store
+        self._messages_synced[pid] = now
         return sorted(store.values(), key=lambda x: (x.sent is not None, x.sent))
 
 
-    def account_for(self, login_id: int) -> dict:
-        return next(a for a in self.accounts if a["Pupil"]["LoginId"] == login_id)
+    def account_for(self, pupil_id: int) -> dict:
+        return next(a for a in self.accounts if a["Pupil"]["Id"] == pupil_id)
 
     # --- nowości → zdarzenia -------------------------------------------------
 
@@ -236,8 +240,8 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         if self._seen is None:
             self._seen = await self._store.async_load() or {}
         dirty = False
-        for login_id, pupil in data.items():
-            seen = self._seen.setdefault(str(login_id), {})
+        for pupil_id, pupil in data.items():
+            seen = self._seen.setdefault(str(pupil_id), {})
             current = {
                 "grades": {g.key: g for g in pupil.grades},
                 "notes": {n.key: n for n in pupil.notes},
@@ -266,7 +270,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             await self._store.async_save(self._seen)
 
     def _fire(self, cat: str, pupil: m.PupilData, item) -> None:
-        base = {"pupil": pupil.name, "login_id": pupil.login_id}
+        base = {"pupil": pupil.name, "pupil_id": pupil.pupil_id, "login_id": pupil.login_id}
         if cat == "grades":
             data = {"type": "new_grade", "subject": item.subject, "grade": item.value,
                     "column": item.column, "weight": item.weight, "teacher": item.teacher}
