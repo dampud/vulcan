@@ -7,9 +7,11 @@ from datetime import date
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
@@ -60,12 +62,47 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+@callback
+def _migrate_login_ids(hass: HomeAssistant, entry: ConfigEntry, coordinator: VulcanCoordinator) -> None:
+    """Przenosi urządzenia i encje z klucza LoginId na Pupil.Id.
+
+    Do 0.6.2 uczeń był rozpoznawany po LoginId, który rodzeństwo z jednego konta
+    rodzica dzieli — przeżywało tylko jedno dziecko. Istniejące wpisy przepinamy na
+    Pupil.Id, żeby po aktualizacji encje zachowały swoje entity_id i historię, zamiast
+    pojawić się drugi raz z końcówką _2. Przy wspólnym LoginId stare wpisy należały do
+    ostatniego ucznia na liście (tak działał dawny słownik), więc to jemu je oddajemy.
+    """
+    login_to_pupil: dict[str, str] = {}
+    for acc in coordinator.accounts:
+        pupil = acc["Pupil"]
+        login_to_pupil[str(pupil["LoginId"])] = str(pupil["Id"])
+
+    ent_reg = er.async_get(hass)
+    for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        old, sep, key = ent.unique_id.partition("_")
+        new = login_to_pupil.get(old)
+        if not sep or new is None or new == old:
+            continue
+        new_uid = f"{new}_{key}"
+        if ent_reg.async_get_entity_id(ent.domain, DOMAIN, new_uid) is None:
+            ent_reg.async_update_entity(ent.entity_id, new_unique_id=new_uid)
+
+    dev_reg = dr.async_get(hass)
+    for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        for domain, old in dev.identifiers:
+            new = login_to_pupil.get(old) if domain == DOMAIN else None
+            if new and new != old and dev_reg.async_get_device(identifiers={(DOMAIN, new)}) is None:
+                dev_reg.async_update_device(dev.id, new_identifiers={(DOMAIN, new)})
+                break
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: VulcanConfigEntry) -> bool:
     credential = Credential.from_dict(entry.data[CONF_CREDENTIAL])
     api = VulcanApi(credential, async_get_clientsession(hass))
     coordinator = VulcanCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    _migrate_login_ids(hass, entry, coordinator)
     # Skrzynka poza setupem: pierwsze odświeżenie dało już plan, oceny i sprawdziany,
     # więc encje mają dane. Wiadomości dociągamy w tle, żeby wolna albo niedostępna
     # skrzynka nie przedłużała startu Home Assistanta.
@@ -116,7 +153,7 @@ def _target(hass: HomeAssistant, call: ServiceCall) -> tuple[VulcanCoordinator, 
         for acc in coord.accounts:
             p = acc["Pupil"]
             name = f"{p.get('FirstName', '')} {p.get('Surname', '')}".lower()
-            if not wanted or wanted in name or wanted == str(p.get("LoginId")):
+            if not wanted or wanted in name or wanted in (str(p.get("Id")), str(p.get("LoginId"))):
                 matches.append((coord, acc))
     if len(matches) != 1:
         raise ServiceValidationError(
@@ -216,8 +253,7 @@ def _register_services(hass: HomeAssistant) -> None:
         to, co koordynator ma już pobrane — bez dodatkowego ruchu do serwera.
         """
         coord, acc = _target(hass, call)
-        login = acc["Pupil"]["LoginId"]
-        pupil = (coord.data or {}).get(login)
+        pupil = (coord.data or {}).get(acc["Pupil"]["Id"])
         if pupil is None:
             raise HomeAssistantError("brak pobranych danych ucznia")
         szukaj = (call.data.get("search") or "").lower()

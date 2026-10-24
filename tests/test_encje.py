@@ -129,7 +129,7 @@ async def test_kalendarz_zadan(hass, setup_entry):
 
 async def test_jedno_urzadzenie_na_ucznia(hass, entry, setup_entry):
     devices = dr.async_get(hass)
-    device = devices.async_get_device(identifiers={(DOMAIN, str(dane.LOGIN_ID))})
+    device = devices.async_get_device(identifiers={(DOMAIN, str(dane.PUPIL_ID))})
     assert device is not None and device.name == "Ala Testowa"
     assert device.model == "klasa 5a"
     entities = er.async_get(hass)
