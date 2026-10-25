@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -48,6 +49,8 @@ MESSAGES_OVERLAP = timedelta(hours=6)
 MESSAGES_HISTORY = timedelta(days=120)
 # ile stron (po 500 rekordów) wolno pobrać dla skrzynki w jednym przebiegu
 MESSAGES_MAX_PAGES = 8
+# w ciszy nocnej plan (tylko on) pobieramy nie częściej niż co tyle
+QUIET_SCHEDULE_EVERY = timedelta(hours=1)
 
 
 def _short(text: str | None) -> str:
@@ -81,6 +84,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         # starcie, w tle (patrz enable_messages()).
         self._skip_messages = True
         self.last_sync = None
+        self.last_schedule_sync = None
         self.force_next = False
 
     # --- cisza nocna ---------------------------------------------------------
@@ -98,6 +102,12 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
 
     async def _async_update_data(self) -> dict[int, m.PupilData]:
         if self.data and self._quiet_now() and not self.force_next:
+            # Cisza nocna wstrzymuje pełne odpytywanie, ale nie plan: szkoły wpisują
+            # odwołania i zastępstwa na jutro wieczorem, a bez tego HA widział je
+            # dopiero rano (25.10: odwołana lekcja wpisana po 20:00 nie dotarła
+            # do sensorów ani kalendarza, choć usługa `schedule` już ją zwracała).
+            if self._schedule_due():
+                return await self._refresh_schedule_only()
             return self.data
         self.force_next = False
         try:
@@ -109,8 +119,53 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             raise UpdateFailed(str(err)) from err
         data = {p.login_id: p for p in pupils}
         self.last_sync = dt_util.utcnow()
+        self.last_schedule_sync = self.last_sync
         await self._detect_changes(data)
         return data
+
+    def _schedule_due(self) -> bool:
+        last = self.last_schedule_sync or self.last_sync
+        return last is None or dt_util.utcnow() - last >= QUIET_SCHEDULE_EVERY
+
+    async def _refresh_schedule_only(self) -> dict[int, m.PupilData]:
+        """Sam plan z zastępstwami — jedno żądanie na ucznia, reszta danych bez zmian."""
+        today = dt_util.now().date()
+        s_from, s_to = m.window(today, *WINDOW_SCHEDULE)
+        data = dict(self.data)
+        for acc in self.accounts:
+            unit, pupil = acc.get("Unit") or {}, acc.get("Pupil") or {}
+            login_id = pupil.get("LoginId")
+            if login_id not in data or not unit.get("RestURL") or pupil.get("Id") is None:
+                continue
+            try:
+                raw = await self.api.schedule(unit["RestURL"], pupil["Id"], s_from, s_to)
+            except AuthError as err:
+                raise ConfigEntryAuthFailed(f"urządzenie odrzucone przez eduVULCAN: {err}") from err
+            except (TransportError, ApiError) as err:
+                # nocny dodatek — błąd nie psuje encji, spróbujemy przy kolejnym przebiegu
+                _LOGGER.debug("plan w ciszy nocnej nie pobrany: %s", err)
+                return self.data
+            data[login_id] = replace(data[login_id], lessons=m.parse_all(m.parse_lesson, raw))
+        self.last_schedule_sync = dt_util.utcnow()
+        await self._detect_changes(data)
+        return data
+
+    async def async_merge_day(self, login_id: int, day, lessons: list[m.Lesson]) -> None:
+        """Wstawia świeży plan jednego dnia (z usługi `schedule`) do danych encji.
+
+        Usługa pyta serwer na żywo; bez tego jej odpowiedź i encje (sensor zmian,
+        kalendarz, pierwsza lekcja) potrafiły się rozjechać aż do następnego odświeżenia.
+        """
+        if not self.data or login_id not in self.data:
+            return
+        pupil = self.data[login_id]
+        reszta = [l for l in pupil.lessons if l.day != day]
+        nowe = sorted(reszta + list(lessons), key=lambda l: l.start)
+        if nowe == sorted(pupil.lessons, key=lambda l: l.start):
+            return
+        data = {**self.data, login_id: replace(pupil, lessons=nowe)}
+        await self._detect_changes(data)
+        self.async_set_updated_data(data)
 
     async def _fetch_pupil(self, acc: dict) -> m.PupilData:
         unit = acc.get("Unit") or {}

@@ -198,6 +198,20 @@
         }
       }
     },
+    "schedule": {
+      "name": "Day schedule",
+      "description": "Returns one day's timetable straight from the server: lesson number, times, subject, teacher, room, cancellation and substitution. The same data is pushed to the entities (sensors, calendar).",
+      "fields": {
+        "pupil": {
+          "name": "Pupil",
+          "description": "Part of the first/last name; empty when there is one pupil."
+        },
+        "date": {
+          "name": "Day",
+          "description": "Day of the timetable."
+        }
+      }
+    },
     "refresh": {
       "name": "Odśwież",
       "description": "Pobiera dane z eduVULCAN teraz (także w ciszy nocnej)."

@@ -85,13 +85,55 @@ async def test_zmiana_w_planie_daje_zdarzenie(hass, entry, setup_entry, zdarzeni
     assert zmiany[0]["cancelled"] is True and zmiany[0]["date"] == dane.JUTRO.isoformat()
 
 
+PLAN = "mobile/schedule/withchanges/byPupil"
+
+
 async def test_cisza_nocna_wstrzymuje_odpytywanie(hass, entry, setup_entry, frozen_time):
+    hass.config_entries.async_update_entry(entry, options={CONF_QUIET_START: 6, CONF_QUIET_END: 8})
+    await hass.async_block_till_done()
+    przed = len(setup_entry.calls)
+    # w ciszy, ale niecałą godzinę po ostatnim pobraniu (06:30) — ani jednego żądania
+    frozen_time.move_to(f"{dane.DZIS.isoformat()} 07:00:00+02:00")
+    await odswiez(hass, entry)
+    assert len(setup_entry.calls) == przed
+
+
+async def test_cisza_nocna_pobiera_tylko_plan_co_godzine(hass, entry, setup_entry, frozen_time, zdarzenia):
     hass.config_entries.async_update_entry(entry, options={CONF_QUIET_START: 22, CONF_QUIET_END: 6})
     await hass.async_block_till_done()
     przed = len(setup_entry.calls)
+    plan = setup_entry.data[PLAN]
+    plan[3] = {**plan[3], "Substitution": {
+        "Id": 54, "ChangeDateAt": dane.JUTRO.isoformat(),
+        "TimeSlot": {"Position": 1, "Start": "09:00:00", "End": "09:45:00"},
+        "Subject": None, "TeacherPrimary": None, "ClassAbsence": True, "Reason": "odwołane wieczorem",
+    }}
     frozen_time.move_to(f"{dane.DZIS.isoformat()} 23:30:00+02:00")
     await odswiez(hass, entry)
-    assert len(setup_entry.calls) == przed  # ani jednego żądania
+    nowe = setup_entry.calls[przed:]
+    assert nowe and {c["path"] for c in nowe} == {PLAN}  # sam plan, bez ocen, skrzynki itd.
+    zmiany = [z for z in zdarzenia if z["type"] == "schedule_change"]
+    assert len(zmiany) == 1 and zmiany[0]["cancelled"] is True
+    assert any(l.cancelled for l in entry.runtime_data.data[dane.LOGIN_ID].lessons)
+
+    # kolejne odświeżenie w tej samej godzinie — cisza
+    po_planie = len(setup_entry.calls)
+    frozen_time.move_to(f"{dane.DZIS.isoformat()} 23:59:00+02:00")
+    await odswiez(hass, entry)
+    assert len(setup_entry.calls) == po_planie
+    # po godzinie znowu sam plan
+    frozen_time.move_to(f"{dane.JUTRO.isoformat()} 00:31:00+02:00")
+    await odswiez(hass, entry)
+    assert {c["path"] for c in setup_entry.calls[po_planie:]} == {PLAN}
+
+
+async def test_blad_planu_w_ciszy_nie_psuje_encji(hass, entry, setup_entry, frozen_time):
+    hass.config_entries.async_update_entry(entry, options={CONF_QUIET_START: 22, CONF_QUIET_END: 6})
+    await hass.async_block_till_done()
+    setup_entry.fail[PLAN] = (502, 0)
+    frozen_time.move_to(f"{dane.DZIS.isoformat()} 23:30:00+02:00")
+    await odswiez(hass, entry)
+    assert entry.runtime_data.last_update_success
 
 
 async def test_usluga_refresh_lamie_cisze_nocna(hass, entry, setup_entry, frozen_time):

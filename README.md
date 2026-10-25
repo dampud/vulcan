@@ -121,7 +121,7 @@ Pobierz ten katalog i otwórz `index.html` — zobaczysz pulpit wypełniony dany
 Ustawienia → Urządzenia i usługi → przy eduVULCAN kliknij **Konfiguruj**:
 
 - **Odpytywanie co (min)** — jak często integracja pyta serwer o nowości. Domyślnie 30 minut. Częściej niż co 15 minut nie ma sensu i niepotrzebnie obciąża szkolny serwer.
-- **Cisza nocna od / do godziny** — w tych godzinach integracja nie pyta serwera w ogóle. Wpisujesz pełną godzinę doby: `22` znaczy 22:00, `6` znaczy 6:00. Ustawienie obu pól na tę samą wartość wyłącza ciszę nocną.
+- **Cisza nocna od / do godziny** — w tych godzinach integracja nie pobiera ocen, wiadomości ani frekwencji; sprawdza tylko plan lekcji, najwyżej raz na godzinę (jedno żądanie na dziecko), żeby odwołania i zastępstwa wpisane wieczorem na jutro nie czekały do rana. Wpisujesz pełną godzinę doby: `22` znaczy 22:00, `6` znaczy 6:00. Ustawienie obu pól na tę samą wartość wyłącza ciszę nocną.
 - **Limit wysyłek na dobę** — ile najwyżej wiadomości i usprawiedliwień można wysłać w ciągu doby. Bezpiecznik na wypadek błędu w automatyzacji.
 
 ---

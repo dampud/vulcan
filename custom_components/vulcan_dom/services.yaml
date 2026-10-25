@@ -48,4 +48,11 @@ recipients:
       selector: {text: {}}
     search:
       selector: {text: {}}
+schedule:
+  fields:
+    pupil:
+      selector: {text: {}}
+    date:
+      required: true
+      selector: {date: {}}
 refresh:
