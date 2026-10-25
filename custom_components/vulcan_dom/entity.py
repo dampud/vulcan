@@ -13,15 +13,15 @@ from .coordinator import VulcanCoordinator
 class VulcanEntity(CoordinatorEntity[VulcanCoordinator]):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: VulcanCoordinator, login_id: int, key: str) -> None:
+    def __init__(self, coordinator: VulcanCoordinator, pupil_id: int, key: str) -> None:
         super().__init__(coordinator)
-        self.login_id = login_id
-        self._attr_unique_id = f"{login_id}_{key}"
+        self.pupil_id = pupil_id
+        self._attr_unique_id = f"{pupil_id}_{key}"
         self._attr_translation_key = key
-        pupil = coordinator.data[login_id]
-        acc = coordinator.account_for(login_id)
+        pupil = coordinator.data[pupil_id]
+        acc = coordinator.account_for(pupil_id)
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, str(login_id))},
+            identifiers={(DOMAIN, str(pupil_id))},
             name=pupil.name,
             manufacturer="VULCAN (nieoficjalnie)",
             model=f"klasa {acc.get('ClassDisplay') or '?'}",
@@ -31,7 +31,7 @@ class VulcanEntity(CoordinatorEntity[VulcanCoordinator]):
 
     @property
     def pupil(self) -> m.PupilData | None:
-        return (self.coordinator.data or {}).get(self.login_id)
+        return (self.coordinator.data or {}).get(self.pupil_id)
 
     @property
     def available(self) -> bool:

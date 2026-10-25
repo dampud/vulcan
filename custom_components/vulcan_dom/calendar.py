@@ -16,8 +16,8 @@ from .entity import VulcanEntity
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     coord = entry.runtime_data
     entities = []
-    for login_id in coord.data:
-        entities += [LessonsCalendar(coord, login_id, "lessons"), DutiesCalendar(coord, login_id, "duties")]
+    for pupil_id in coord.data:
+        entities += [LessonsCalendar(coord, pupil_id, "lessons"), DutiesCalendar(coord, pupil_id, "duties")]
     async_add_entities(entities)
 
 

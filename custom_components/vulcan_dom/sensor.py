@@ -213,17 +213,17 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     coord = entry.runtime_data
     entities: list[SensorEntity] = []
-    for login_id in coord.data:
-        entities += [VulcanSensor(coord, login_id, d) for d in SENSORS]
-        entities.append(VulcanLastSync(coord, login_id))
+    for pupil_id in coord.data:
+        entities += [VulcanSensor(coord, pupil_id, d) for d in SENSORS]
+        entities.append(VulcanLastSync(coord, pupil_id))
     async_add_entities(entities)
 
 
 class VulcanSensor(VulcanEntity, SensorEntity):
     entity_description: VulcanSensorDescription
 
-    def __init__(self, coordinator, login_id: int, description: VulcanSensorDescription) -> None:
-        super().__init__(coordinator, login_id, description.key)
+    def __init__(self, coordinator, pupil_id: int, description: VulcanSensorDescription) -> None:
+        super().__init__(coordinator, pupil_id, description.key)
         self.entity_description = description
 
     @property
@@ -239,8 +239,8 @@ class VulcanLastSync(VulcanEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, login_id: int) -> None:
-        super().__init__(coordinator, login_id, "last_sync")
+    def __init__(self, coordinator, pupil_id: int) -> None:
+        super().__init__(coordinator, pupil_id, "last_sync")
 
     @property
     def available(self) -> bool:

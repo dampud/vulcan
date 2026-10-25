@@ -114,7 +114,7 @@ async def test_cisza_nocna_pobiera_tylko_plan_co_godzine(hass, entry, setup_entr
     assert nowe and {c["path"] for c in nowe} == {PLAN}  # sam plan, bez ocen, skrzynki itd.
     zmiany = [z for z in zdarzenia if z["type"] == "schedule_change"]
     assert len(zmiany) == 1 and zmiany[0]["cancelled"] is True
-    assert any(l.cancelled for l in entry.runtime_data.data[dane.LOGIN_ID].lessons)
+    assert any(l.cancelled for l in entry.runtime_data.data[dane.PUPIL_ID].lessons)
 
     # kolejne odświeżenie w tej samej godzinie — cisza
     po_planie = len(setup_entry.calls)
@@ -159,7 +159,7 @@ async def test_drugie_pobranie_wiadomosci_jest_przyrostowe(hass, entry, setup_en
     drugie = setup_entry.path_calls(sciezka)[len(pierwsze):]
     assert drugie[0]["params"]["lastSyncDate"] != "1970-01-01 01:00:00"
 
-    uczen = entry.runtime_data.data[dane.LOGIN_ID]
+    uczen = entry.runtime_data.data[dane.PUPIL_ID]
     assert {m.key for m in uczen.messages} == {"msg-61", "msg-62", "msg-63", "msg-65"}
     assert uczen.unread_messages == 2  # stare zostały scalone, nie zgubione
 
@@ -195,7 +195,7 @@ async def test_brak_numerka_nie_psuje_pobierania(hass, entry, setup_entry):
     setup_entry.fail["mobile/school/lucky"] = (200, 200)  # nie znaleziono obiektu
     await odswiez(hass, entry)
     assert entry.runtime_data.last_update_success is True
-    assert entry.runtime_data.data[dane.LOGIN_ID].lucky_number is None
+    assert entry.runtime_data.data[dane.PUPIL_ID].lucky_number is None
 
 
 async def test_konto_bez_constituent_unit_nie_wywala(hass, entry, setup_entry):
@@ -203,7 +203,7 @@ async def test_konto_bez_constituent_unit_nie_wywala(hass, entry, setup_entry):
     setup_entry.data["mobile/register/hebe"] = [konto]
     await odswiez(hass, entry)
     assert entry.runtime_data.last_update_success is True
-    assert entry.runtime_data.data[dane.LOGIN_ID].lucky_number is None
+    assert entry.runtime_data.data[dane.PUPIL_ID].lucky_number is None
 
 
 async def test_wyladowanie_wpisu(hass, entry, setup_entry):
@@ -219,7 +219,7 @@ async def test_awaria_skrzynki_nie_zabiera_pozostalych_danych(hass, entry, setup
     await odswiez(hass, entry)
     assert entry.state is ConfigEntryState.LOADED
     assert entry.runtime_data.last_update_success is True
-    uczen = entry.runtime_data.data[dane.LOGIN_ID]
+    uczen = entry.runtime_data.data[dane.PUPIL_ID]
     assert uczen.lessons and uczen.grades  # plan i oceny żyją mimo padniętej skrzynki
     assert hass.states.get("sensor.ala_testowa_pierwsza_lekcja_dzis").state not in (
         "unavailable", "unknown")
@@ -241,7 +241,7 @@ async def test_pierwsze_pobranie_pomija_skrzynke(hass, entry, setup_entry):
     assert len(setup_entry.path_calls(sciezka)) == przed  # zero nowych wywołań
 
     # a dane pozostałych kategorii dalej są pobierane
-    uczen = coord.data[dane.LOGIN_ID]
+    uczen = coord.data[dane.PUPIL_ID]
     assert uczen.lessons and uczen.grades
 
     coord.enable_messages()
@@ -254,7 +254,7 @@ async def test_bledna_kategoria_nie_wywraca_odswiezenia(hass, entry, setup_entry
     setup_entry.fail["mobile/grade/byPupil"] = (502, 0)
     await odswiez(hass, entry)
     assert entry.runtime_data.last_update_success is True
-    uczen = entry.runtime_data.data[dane.LOGIN_ID]
+    uczen = entry.runtime_data.data[dane.PUPIL_ID]
     assert uczen.lessons and uczen.attendance   # plan i frekwencja nietknięte
     assert uczen.grades == []                   # same oceny puste
     assert hass.states.get("sensor.ala_testowa_ostatnia_synchronizacja").attributes["blad"] is None
