@@ -138,36 +138,36 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         data = dict(self.data)
         for acc in self.accounts:
             unit, pupil = acc.get("Unit") or {}, acc.get("Pupil") or {}
-            login_id = pupil.get("LoginId")
-            if login_id not in data or not unit.get("RestURL") or pupil.get("Id") is None:
+            pupil_id = pupil.get("Id")
+            if pupil_id not in data or not unit.get("RestURL"):
                 continue
             try:
-                raw = await self.api.schedule(unit["RestURL"], pupil["Id"], s_from, s_to)
+                raw = await self.api.schedule(unit["RestURL"], pupil_id, s_from, s_to)
             except AuthError as err:
                 raise ConfigEntryAuthFailed(f"urządzenie odrzucone przez eduVULCAN: {err}") from err
             except (TransportError, ApiError) as err:
                 # nocny dodatek — błąd nie psuje encji, spróbujemy przy kolejnym przebiegu
                 _LOGGER.debug("plan w ciszy nocnej nie pobrany: %s", err)
                 return self.data
-            data[login_id] = replace(data[login_id], lessons=m.parse_all(m.parse_lesson, raw))
+            data[pupil_id] = replace(data[pupil_id], lessons=m.parse_all(m.parse_lesson, raw))
         self.last_schedule_sync = dt_util.utcnow()
         await self._detect_changes(data)
         return data
 
-    async def async_merge_day(self, login_id: int, day, lessons: list[m.Lesson]) -> None:
+    async def async_merge_day(self, pupil_id: int, day, lessons: list[m.Lesson]) -> None:
         """Wstawia świeży plan jednego dnia (z usługi `schedule`) do danych encji.
 
         Usługa pyta serwer na żywo; bez tego jej odpowiedź i encje (sensor zmian,
         kalendarz, pierwsza lekcja) potrafiły się rozjechać aż do następnego odświeżenia.
         """
-        if not self.data or login_id not in self.data:
+        if not self.data or pupil_id not in self.data:
             return
-        pupil = self.data[login_id]
+        pupil = self.data[pupil_id]
         reszta = [l for l in pupil.lessons if l.day != day]
         nowe = sorted(reszta + list(lessons), key=lambda l: l.start)
         if nowe == sorted(pupil.lessons, key=lambda l: l.start):
             return
-        data = {**self.data, login_id: replace(pupil, lessons=nowe)}
+        data = {**self.data, pupil_id: replace(pupil, lessons=nowe)}
         await self._detect_changes(data)
         self.async_set_updated_data(data)
 

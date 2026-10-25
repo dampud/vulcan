@@ -114,7 +114,7 @@ async def test_cisza_nocna_pobiera_tylko_plan_co_godzine(hass, entry, setup_entr
     assert nowe and {c["path"] for c in nowe} == {PLAN}  # sam plan, bez ocen, skrzynki itd.
     zmiany = [z for z in zdarzenia if z["type"] == "schedule_change"]
     assert len(zmiany) == 1 and zmiany[0]["cancelled"] is True
-    assert any(l.cancelled for l in entry.runtime_data.data[dane.LOGIN_ID].lessons)
+    assert any(l.cancelled for l in entry.runtime_data.data[dane.PUPIL_ID].lessons)
 
     # kolejne odświeżenie w tej samej godzinie — cisza
     po_planie = len(setup_entry.calls)
