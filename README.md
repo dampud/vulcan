@@ -4,6 +4,10 @@ Nieoficjalna integracja, która wciąga dziennik eduVULCAN do Home Assistanta: p
 
 Dzięki temu możesz na przykład ustawić budzik według pierwszej lekcji następnego dnia, dostać powiadomienie o zastępstwie albo zobaczyć na tablecie w kuchni, co dziecko ma jutro w szkole.
 
+![Widok „Szkoła” w domowym panelu na tablecie: trwająca lekcja z odliczaniem do dzwonka, plan dnia z zastępstwem, jutrzejsza pierwsza lekcja, sprawdziany i zmiany w planie](docs/zrzuty/perla-dzis.png)
+
+<sub>Domowy panel na tablecie zbudowany na encjach i usługach tej integracji. Na zrzutach wyłącznie zmyślone dane: uczennica, nauczyciele, plan i oceny. Więcej w sekcji [Jak to wygląda u nas](#jak-to-wygląda-u-nas).</sub>
+
 > **To nie jest oprogramowanie firmy VULCAN.** Korzystanie z nieoficjalnego klienta może naruszać regulamin eduVULCAN i w skrajnym przypadku skończyć się blokadą konta. Używasz na własne ryzyko.
 
 ---
@@ -113,6 +117,24 @@ Wklejony tekst nie jest nigdzie zapisywany. Home Assistant wymienia go na własn
 W katalogu [`przyklady/dashboard-szkola/`](przyklady/dashboard-szkola/) leży gotowa strona pokazująca wszystko naraz: plan dnia z zastępstwami, oceny ze średnimi i przyciskiem ukrywania, sprawdziany, zadania, frekwencję i pocztę. Jasny i ciemny motyw, działa na telefonie i na tablecie.
 
 Pobierz ten katalog i otwórz `index.html` — zobaczysz pulpit wypełniony danymi pokazowymi, bez łączenia się z czymkolwiek. Jeśli układ ci odpowiada, skopiuj pliki do `config/www/szkola/` i otwórz pod adresem `/local/szkola/index.html?prefix=sensor.imie_nazwisko`. Instrukcja krok po kroku, razem z dodaniem pulpitu jako zakładki w Home Assistancie, jest w [README tego katalogu](przyklady/dashboard-szkola/README.md).
+
+---
+
+## Jak to wygląda u nas
+
+Widok „Szkoła” z naszego domowego panelu na tablecie (własna strona HTML w `config/www/`, poza tym repozytorium). Pokazuje, co da się zbudować na tym, co daje integracja: kalendarzu `lessons` i `duties`, sensorach ocen, frekwencji, wiadomości i szczęśliwego numerka oraz usługach `justify_absence`, `recipients` i `send_message`. Wszystkie dane na zrzutach są zmyślone.
+
+| Dziś | Plan lekcji |
+|---|---|
+| ![Trwająca lekcja z odliczaniem, plan dnia z zastępstwem, jutro, sprawdziany i zadania, zmiany w planie](docs/zrzuty/perla-dzis.png) | ![Siatka tygodnia z zaznaczoną bieżącą lekcją, zastępstwem i odwołaną lekcją](docs/zrzuty/perla-plan-tygodnia.png) |
+| **Oceny** — średnie przedmiotów z trendem z 14 dni; domyślnie rozmyte, zasłaniają się same po 2 minutach | **Nieobecności** — dni do usprawiedliwienia z sensora i wysyłka przez `vulcan_dom.justify_absence` |
+| ![Kafle przedmiotów ze średnimi, trendem i ostatnimi ocenami](docs/zrzuty/perla-oceny.png) | ![Wybór dnia i powodu, lista lekcji do usprawiedliwienia](docs/zrzuty/perla-nieobecnosci.png) |
+| **Zwolnienie** — z WF albo z części dnia do nauczyciela ostatniej lekcji; wysyłka dopiero po przytrzymaniu 3 s | **Jasny wygląd** |
+| ![Formularz zwolnienia z podglądem wiadomości i przyciskiem przytrzymania](docs/zrzuty/perla-zwolnienie.png) | ![Widok Dziś w jasnym wyglądzie](docs/zrzuty/perla-dzis-jasny.png) |
+
+<img src="docs/zrzuty/perla-telefon.png" alt="Widok Dziś na telefonie" width="300">
+
+Prostszy, gotowy do skopiowania pulpit jest w [`przyklady/dashboard-szkola/`](przyklady/dashboard-szkola/).
 
 ---
 
