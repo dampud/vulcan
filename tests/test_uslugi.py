@@ -187,3 +187,19 @@ async def test_odczyt_frekwencji_odwrocony_zakres_odrzucony(hass, setup_entry):
             "date_from": dane.DZIS.isoformat(),
             "date_to": (dane.DZIS - timedelta(days=5)).isoformat(),
         })
+
+
+async def test_plan_dnia_z_uslugi_trafia_do_encji(hass, setup_entry):
+    """Usługa pyta serwer na żywo — ta sama odpowiedź ma od razu trafić do sensorów."""
+    plan = setup_entry.data["mobile/schedule/withchanges/byPupil"]
+    jutro = [i for i, r in enumerate(plan) if r.get("DateAt") == dane.JUTRO.isoformat()]
+    i = jutro[0]
+    plan[i] = {**plan[i], "Substitution": {
+        "Id": 55, "ChangeDateAt": dane.JUTRO.isoformat(), "TimeSlot": plan[i]["TimeSlot"],
+        "Subject": None, "TeacherPrimary": None, "ClassAbsence": True, "Reason": "odwołane",
+    }}
+    przed = int(hass.states.get("sensor.ala_testowa_zmiany_w_planie_7_dni").state)
+    out = await wywolaj(hass, "schedule", {"date": dane.JUTRO.isoformat()})
+    assert any(l["odwolana"] for l in out["lekcje"])
+    await hass.async_block_till_done()
+    assert int(hass.states.get("sensor.ala_testowa_zmiany_w_planie_7_dni").state) == przed + 1

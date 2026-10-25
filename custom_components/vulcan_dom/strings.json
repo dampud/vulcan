@@ -198,6 +198,20 @@
         }
       }
     },
+    "schedule": {
+      "name": "Plan dnia",
+      "description": "Zwraca plan jednego dnia prosto z serwera: numer lekcji, godziny, przedmiot, nauczyciel, sala, odwołanie i zastępstwo. Ten sam plan trafia od razu do encji (sensory, kalendarz).",
+      "fields": {
+        "pupil": {
+          "name": "Uczeń",
+          "description": "Fragment imienia/nazwiska; puste, gdy jeden uczeń."
+        },
+        "date": {
+          "name": "Dzień",
+          "description": "Dzień planu."
+        }
+      }
+    },
     "refresh": {
       "name": "Odśwież",
       "description": "Pobiera dane z eduVULCAN teraz (także w ciszy nocnej)."

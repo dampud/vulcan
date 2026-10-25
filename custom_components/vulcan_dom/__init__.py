@@ -308,6 +308,8 @@ def _register_services(hass: HomeAssistant) -> None:
         except (ApiError, TransportError) as err:
             raise HomeAssistantError(str(err)) from err
         lekcje = [l for l in m.parse_all(m.parse_lesson, surowe) if l.day == dzien]
+        # ta sama odpowiedź trafia do encji — usługa i sensory nie mogą mówić co innego
+        await coord.async_merge_day(acc["Pupil"]["LoginId"], dzien, lekcje)
         return {
             "data": dzien.isoformat(),
             "lekcji": len(lekcje),
