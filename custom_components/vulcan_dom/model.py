@@ -96,6 +96,20 @@ def grade_to_number(content: Any, value: Any = None) -> tuple[float | None, bool
     return base + (GRADE_PLUS if sign == "+" else GRADE_MINUS if sign == "-" else 0.0), False
 
 
+SKALA_1_6 = "1-6"
+SKALA_PROCENT = "procent"
+
+
+def grade_scale(grades: list["Grade"]) -> str:
+    """Skala ocen przedmiotu: procentowa, gdy którakolwiek ocena wykracza poza 1–6.
+
+    Klasy 1–3 dostają zwykle oceny procentowe (0–100), a religia czy etyka bywa w tych
+    samych klasach oceniana w skali 1–6. Rozpoznajemy po przedmiocie, nie po pojedynczej
+    ocenie — inaczej 5% z kartkówki trafiłoby do skali 1–6.
+    """
+    return SKALA_PROCENT if any(g.numeric is not None and g.numeric > 6 for g in grades) else SKALA_1_6
+
+
 def weighted_average(grades: list["Grade"]) -> float | None:
     """Średnia ważona ocen mających wartość liczbową; brak wagi liczymy jako 1."""
     pairs = [(g.numeric, g.weight if g.weight and g.weight > 0 else 1.0) for g in grades if g.numeric is not None]
@@ -296,9 +310,35 @@ class PupilData:
             out.setdefault(grade.subject, []).append(grade)
         return dict(sorted(out.items()))
 
+    def grades_by_scale(self) -> dict[str, list[Grade]]:
+        """Oceny rozdzielone na skale (1–6 i procentową) — skalę wyznacza przedmiot."""
+        out: dict[str, list[Grade]] = {}
+        for grades in self.grades_by_subject().values():
+            out.setdefault(grade_scale(grades), []).extend(grades)
+        return out
+
+    def averages(self) -> dict[str, float]:
+        """Średnia ważona osobno dla każdej skali, w której są oceny z wartością."""
+        out = {skala: weighted_average(grades) for skala, grades in self.grades_by_scale().items()}
+        return {skala: avg for skala, avg in out.items() if avg is not None}
+
+    def main_scale(self) -> str | None:
+        """Skala z największą liczbą ocen mających wartość liczbową."""
+        liczby = {
+            skala: sum(1 for g in grades if g.numeric is not None)
+            for skala, grades in self.grades_by_scale().items()
+        }
+        liczby = {skala: n for skala, n in liczby.items() if n}
+        return max(liczby, key=lambda s: (liczby[s], s == SKALA_1_6)) if liczby else None
+
     def average(self) -> float | None:
-        """Średnia ważona ze wszystkich ocen — orientacyjna, nie jest to średnia ocen rocznych."""
-        return weighted_average(self.grades)
+        """Średnia ważona w dominującej skali — orientacyjna, nie jest to średnia ocen rocznych.
+
+        Procentów i ocen 1–6 nie mieszamy: średnia z 100% i szóstki nic nie znaczy.
+        Średnie wszystkich skal są w averages().
+        """
+        skala = self.main_scale()
+        return self.averages().get(skala) if skala else None
 
 
 # --- parsery -----------------------------------------------------------------

@@ -352,3 +352,33 @@ def test_stan_wniosku_rozstrzyga_flaga_nie_liczba(
     })
     assert a.justification_pending is w_toku
     assert a.to_justify is do_usprawiedliwienia
+
+
+def _ocena(przedmiot: str, wartosc: float | None, waga: float = 1.0, nr: int = 0) -> m.Grade:
+    return m.Grade(key=f"G{przedmiot}{nr}", value=str(wartosc), subject=przedmiot, column=None,
+                   weight=waga, teacher=None, created=None, modified=None, numeric=wartosc)
+
+
+def test_skale_procentowa_i_1_6_nie_mieszaja_sie():
+    """Klasy 1–3: procenty z edukacji wczesnoszkolnej, religia w skali 1–6."""
+    oceny = [
+        _ocena("Edukacja polonistyczna", 100, nr=1),
+        _ocena("Edukacja polonistyczna", 80, nr=2),
+        _ocena("Edukacja polonistyczna", 5, nr=3),  # 5% z kartkówki, nadal skala procentowa
+        _ocena("Edukacja matematyczna", 95),
+        _ocena("Religia", 5, nr=1),
+        _ocena("Religia", 6, nr=2),
+    ]
+    p = m.PupilData(pupil_id=1, login_id=2, name="x", grades=oceny)
+
+    assert m.grade_scale(p.grades_by_subject()["Edukacja polonistyczna"]) == m.SKALA_PROCENT
+    assert m.grade_scale(p.grades_by_subject()["Religia"]) == m.SKALA_1_6
+    assert p.averages() == {m.SKALA_PROCENT: 70.0, m.SKALA_1_6: 5.5}
+    assert p.main_scale() == m.SKALA_PROCENT
+    assert p.average() == 70.0  # nie 48,5 z wymieszania procentów z szóstkami
+
+
+def test_bez_ocen_procentowych_srednia_jak_dotad():
+    p = pupil()
+    assert p.main_scale() == m.SKALA_1_6
+    assert p.averages() == {m.SKALA_1_6: 4.41}

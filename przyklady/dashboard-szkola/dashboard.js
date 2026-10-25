@@ -113,8 +113,14 @@
       try { localStorage.setItem("szkola_oceny_ukryte", oceny_ukryte ? "1" : "0"); } catch { /* nieistotne */ }
     });
 
-    k.append(el("div", "duza srednia", lb(d.srednia)),
-             el("div", "pod", "średnia ważona ze wszystkich ocen"));
+    // Procentów i ocen 1–6 nie łączymy: duża liczba to skala dominująca, druga pod nią.
+    const procent = d.skala === "procent";
+    k.append(el("div", "duza srednia", lb(d.srednia) + (procent && d.srednia != null ? "%" : "")),
+             el("div", "pod", procent ? "średnia ważona ocen procentowych" : "średnia ważona ocen 1–6"));
+    const inne = Object.entries(d.srednie || {}).filter(([s]) => s !== d.skala);
+    for (const [s, v] of inne) {
+      k.append(el("div", "pod", s === "procent" ? `oceny procentowe: ${lb(v)}%` : `oceny 1–6: ${lb(v)}`));
+    }
 
     if (d.przedmioty && d.przedmioty.length) {
       const lista = el("div");
@@ -275,6 +281,8 @@
       }),
       zadania: [],
       srednia: liczba(we("oceny")?.state),
+      skala: atr("oceny", "skala"),
+      srednie: atr("oceny", "srednie") || {},
       przedmioty: (atr("oceny", "przedmioty") || []).map((p) => ({
         przedmiot: p.przedmiot, srednia: p.srednia,
         oceny: (p.oceny || []).map((o) => ({ ocena: o.ocena, waga: o.waga, wartosc: o.wartosc })),
