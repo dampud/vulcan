@@ -22,7 +22,9 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
 
 
 def _lesson_event(l: m.Lesson) -> CalendarEvent:
-    prefix = "ODWOŁANA: " if l.cancelled else ("Zmiana: " if l.changed else "")
+    prefix = "ODWOŁANA: " if l.cancelled else (
+        "Przeniesienie: " if l.change_type == 3 else ("Zmiana: " if l.changed else "")
+    )
     desc = "\n".join(filter(None, [
         f"Nauczyciel: {l.teacher}" if l.teacher else None,
         f"Grupa: {l.group}" if l.group else None,
@@ -30,6 +32,27 @@ def _lesson_event(l: m.Lesson) -> CalendarEvent:
     ]))
     return CalendarEvent(start=l.start, end=l.end, summary=f"{prefix}{l.position or ''} {l.subject}".strip(),
                          location=l.room, description=desc or None, uid=l.key)
+
+
+def _lesson_events(l: m.Lesson) -> list[CalendarEvent]:
+    """A moved lesson is one lesson plus a cancelled event in its old slot."""
+    events = []
+    if l.previous_start and l.previous_end:
+        old_desc = "\n".join(filter(None, [
+            f"Nauczyciel: {l.teacher}" if l.teacher else None,
+            f"Grupa: {l.group}" if l.group else None,
+            f"Przeniesiono na: {l.start.strftime('%H:%M')}–{l.end.strftime('%H:%M')}",
+        ]))
+        events.append(CalendarEvent(
+            start=l.previous_start,
+            end=l.previous_end,
+            summary=f"ODWOŁANA: {l.previous_position or ''} {l.subject}".strip(),
+            location=l.room,
+            description=old_desc or None,
+            uid=f"{l.key}-moved-from",
+        ))
+    events.append(_lesson_event(l))
+    return events
 
 
 def _duty_events(p: m.PupilData) -> list[CalendarEvent]:
@@ -52,7 +75,7 @@ def _in_range(ev: CalendarEvent, start: datetime, end: datetime) -> bool:
 
 class LessonsCalendar(VulcanEntity, CalendarEntity):
     def _events(self) -> list[CalendarEvent]:
-        return [_lesson_event(l) for l in self.pupil.lessons] if self.pupil else []
+        return [event for l in self.pupil.lessons for event in _lesson_events(l)] if self.pupil else []
 
     @property
     def event(self) -> CalendarEvent | None:

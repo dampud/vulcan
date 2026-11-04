@@ -163,7 +163,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         if not self.data or pupil_id not in self.data:
             return
         pupil = self.data[pupil_id]
-        reszta = [l for l in pupil.lessons if l.day != day]
+        reszta = [l for l in pupil.lessons if l.day != day and l.previous_day != day]
         nowe = sorted(reszta + list(lessons), key=lambda l: l.start)
         if nowe == sorted(pupil.lessons, key=lambda l: l.start):
             return
@@ -351,5 +351,8 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         else:
             data = {"type": "schedule_change", "subject": item.subject, "date": item.day.isoformat(),
                     "lesson": item.position, "start": item.start.isoformat(), "cancelled": item.cancelled,
-                    "teacher": item.teacher, "room": item.room, "note": item.change_note}
+                    "teacher": item.teacher, "room": item.room, "note": item.change_note,
+                    "change_type": item.change_type,
+                    "previous_start": item.previous_start.isoformat() if item.previous_start else None,
+                    "previous_end": item.previous_end.isoformat() if item.previous_end else None}
         self.hass.bus.async_fire(EVENT, {**base, **data})

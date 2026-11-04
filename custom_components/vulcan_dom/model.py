@@ -142,6 +142,11 @@ class Lesson:
     changed: bool = False
     cancelled: bool = False
     change_note: str | None = None
+    change_type: int | None = None
+    previous_day: date | None = None
+    previous_start: datetime | None = None
+    previous_end: datetime | None = None
+    previous_position: int | None = None
 
 
 @dataclass
@@ -346,7 +351,67 @@ class PupilData:
 
 def parse_lesson(raw: dict) -> Lesson | None:
     sub = raw.get("Substitution") or None
-    slot = (sub or {}).get("TimeSlot") or raw.get("TimeSlot") or {}
+    original_slot = raw.get("TimeSlot") or {}
+    moved_slot = (sub or {}).get("TimeSlot") or {}
+    change = raw.get("Change") or {}
+    change_type = change.get("Type")
+    is_move = bool(sub) and str(change_type) == "3"
+
+    # Type 3 represents a lesson moved to a different slot. The API keeps the
+    # original slot on the lesson and puts the destination in Substitution.
+    # Preserve both so the calendar can show the cancellation and moved lesson.
+    original_day = to_date(raw.get("DateAt"))
+    destination_day = (
+        to_date((sub or {}).get("DateAt"))
+        or to_date((sub or {}).get("ChangeDateAt"))
+        or original_day
+    )
+    original_start_t = to_time(original_slot.get("Start"))
+    original_end_t = to_time(original_slot.get("End"))
+    moved_start_t = to_time(moved_slot.get("Start"))
+    moved_end_t = to_time(moved_slot.get("End"))
+    if (
+        is_move
+        and original_day
+        and destination_day
+        and original_start_t
+        and original_end_t
+        and moved_start_t
+        and moved_end_t
+    ):
+        original_start = datetime.combine(original_day, original_start_t, TZ)
+        original_end = datetime.combine(original_day, original_end_t, TZ)
+        moved_start = datetime.combine(destination_day, moved_start_t, TZ)
+        moved_end = datetime.combine(destination_day, moved_end_t, TZ)
+        if (original_day, original_start, original_end) != (destination_day, moved_start, moved_end):
+            subject = _name(sub.get("Subject")) or _name(raw.get("Subject")) or raw.get("Event") or "Zajęcia"
+            teacher = _teacher(sub.get("TeacherPrimary")) or _teacher(raw.get("TeacherPrimary"))
+            room = _name(sub.get("Room"), "Code") or _name(raw.get("Room"), "Code")
+            group = _name(raw.get("Distribution"))
+            note = "; ".join(
+                filter(None, [sub.get("PupilNote"), sub.get("Reason"), sub.get("TeacherAbsenceEffectName"), sub.get("Description")])
+            ) or None
+            return Lesson(
+                key=f"L{raw.get('Id')}-{destination_day.isoformat()}",
+                day=destination_day,
+                start=moved_start,
+                end=moved_end,
+                position=moved_slot.get("Position") or original_slot.get("Position"),
+                subject=subject,
+                teacher=teacher,
+                room=room,
+                group=group,
+                changed=True,
+                cancelled=bool(sub.get("ClassAbsence")),
+                change_note=note,
+                change_type=3,
+                previous_day=original_day,
+                previous_start=original_start,
+                previous_end=original_end,
+                previous_position=original_slot.get("Position"),
+            )
+
+    slot = moved_slot or original_slot
     day = to_date((sub or {}).get("ChangeDateAt")) or to_date(raw.get("DateAt"))
     start_t, end_t = to_time(slot.get("Start")), to_time(slot.get("End"))
     if not day or not start_t or not end_t:
@@ -377,6 +442,7 @@ def parse_lesson(raw: dict) -> Lesson | None:
         changed=sub is not None,
         cancelled=cancelled,
         change_note=note,
+        change_type=change_type,
     )
 
 
@@ -595,7 +661,10 @@ def new_items(previous: set[str], items: list, key=lambda x: x.key) -> list:
 
 def lesson_change_key(lesson: Lesson) -> str:
     """Klucz zmiany w planie — nowe zastępstwo albo jego modyfikacja."""
-    return f"{lesson.key}|{lesson.cancelled}|{lesson.subject}|{lesson.teacher}|{lesson.room}"
+    return (
+        f"{lesson.key}|{lesson.start.isoformat()}|{lesson.end.isoformat()}|"
+        f"{lesson.cancelled}|{lesson.subject}|{lesson.teacher}|{lesson.room}"
+    )
 
 
 def window(today: date, back: int, ahead: int) -> tuple[date, date]:

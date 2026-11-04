@@ -166,7 +166,9 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda p: len(_changes(p)),
         attrs=lambda p: {"zmiany": [
-            f"{l.day.isoformat()} lekcja {l.position}: {'ODWOŁANA ' if l.cancelled else ''}{l.subject}"
+            f"{l.day.isoformat()} lekcja {l.position}: "
+            f"{'PRZENIESIONA ' if l.change_type == 3 else ('ODWOŁANA ' if l.cancelled else '')}{l.subject}"
+            + (f" (z {l.previous_start.strftime('%H:%M')})" if l.previous_start else "")
             + (f" ({l.teacher})" if l.teacher else "") for l in _changes(p)[:MAX_LIST]
         ]},
     ),

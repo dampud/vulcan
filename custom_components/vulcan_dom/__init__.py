@@ -343,7 +343,10 @@ def _register_services(hass: HomeAssistant) -> None:
             surowe = await coord.api.schedule(rest, pid, dzien, dzien)
         except (ApiError, TransportError) as err:
             raise HomeAssistantError(str(err)) from err
-        lekcje = [l for l in m.parse_all(m.parse_lesson, surowe) if l.day == dzien]
+        lekcje = [
+            l for l in m.parse_all(m.parse_lesson, surowe)
+            if l.day == dzien or l.previous_day == dzien
+        ]
         # ta sama odpowiedź trafia do encji — usługa i sensory nie mogą mówić co innego
         await coord.async_merge_day(pid, dzien, lekcje)
         return {
@@ -359,6 +362,10 @@ def _register_services(hass: HomeAssistant) -> None:
                     "sala": l.room,
                     "odwolana": l.cancelled,
                     "zmiana": l.changed,
+                    "typ_zmiany": l.change_type,
+                    "pierwotny_dzien": l.previous_day.isoformat() if l.previous_day else None,
+                    "pierwotne_od": l.previous_start.strftime("%H:%M") if l.previous_start else None,
+                    "pierwotne_do": l.previous_end.strftime("%H:%M") if l.previous_end else None,
                 }
                 for l in sorted(lekcje, key=lambda x: (x.position or 0, x.start or x.day))
             ],
