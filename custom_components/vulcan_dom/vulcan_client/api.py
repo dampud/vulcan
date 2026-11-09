@@ -10,6 +10,7 @@ modele dokładamy, gdy zobaczymy realne dane.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
 from typing import Any
 
@@ -115,10 +116,33 @@ class VulcanApi:
 
     async def schedule(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
         """Plan z zastępstwami."""
-        return await self._get_paged(
-            rest_url, "mobile/schedule/withchanges/byPupil", pupil_id,
-            **_sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
+        query = _sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to)
+        regular, extra = await asyncio.gather(
+            self._get_paged(rest_url, "mobile/schedule/withchanges/byPupil", pupil_id, **query),
+            self._get_paged(rest_url, "mobile/schedule/extra/withchanges/byPupil", pupil_id, **query),
         )
+        # Preserve the established lesson parser while normalizing the separate
+        # extracurricular schema. Namespace IDs to avoid collisions with lessons.
+        for item in extra:
+            sub = item.get("Substitution")
+            normalized = {
+                **item, "Id": f"extra-{item['Id']}", "Additional": True,
+                "Subject": {"Name": item.get("SchedulePupilDescription") or item.get("ScheduleDescription") or item.get("ExtraDescription") or "Zajęcia dodatkowe"},
+                "TeacherPrimary": item.get("Teacher"),
+                "Change": {"Type": 3} if sub and (sub.get("TimeStart") or sub.get("DateAt")) else None,
+            }
+            if sub:
+                old_slot = item.get("TimeSlot") or {}
+                normalized["Substitution"] = {
+                    **sub, "TeacherPrimary": sub.get("Teacher") or item.get("Teacher"),
+                    "Subject": normalized["Subject"],
+                    "DateAt": sub.get("DateAt") or sub.get("LessonDateAt") or item.get("DateAt"),
+                    "ChangeDateAt": sub.get("DateAt") or sub.get("LessonDateAt") or item.get("DateAt"),
+                    "TimeSlot": {"Start": sub.get("TimeStart") or old_slot.get("Start"),
+                                 "End": sub.get("TimeEnd") or old_slot.get("End"), "Position": None},
+                }
+            regular.append(normalized)
+        return regular
 
     async def exams(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
         return await self._get_paged(
@@ -155,10 +179,10 @@ class VulcanApi:
             pupilId=pupil_id, constituentId=constituent_id, day=day,
         )
 
-    async def vacations(self, rest_url: str, pupil_id: int, date_from: date, date_to: date) -> list[dict]:
+    async def vacations(self, rest_url: str, pupil_id: int, date_from: date, date_to: date, constituent_id: int) -> list[dict]:
         return await self._get_paged(
             rest_url, "mobile/school/vacation", pupil_id,
-            **_sync(pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
+            **_sync(constituentId=constituent_id, pupilId=pupil_id, dateFrom=date_from, dateTo=date_to),
         )
 
     async def messages_received(

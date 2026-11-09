@@ -142,14 +142,17 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             if pupil_id not in data or not unit.get("RestURL"):
                 continue
             try:
-                raw = await self.api.schedule(unit["RestURL"], pupil_id, s_from, s_to)
+                raw, free_days = await asyncio.gather(
+                    self.api.schedule(unit["RestURL"], pupil_id, s_from, s_to),
+                    self.api.vacations(unit["RestURL"], pupil_id, s_from, s_to, acc["ConstituentUnit"]["Id"]),
+                )
             except AuthError as err:
                 raise ConfigEntryAuthFailed(f"urządzenie odrzucone przez eduVULCAN: {err}") from err
             except (TransportError, ApiError) as err:
                 # nocny dodatek — błąd nie psuje encji, spróbujemy przy kolejnym przebiegu
                 _LOGGER.debug("plan w ciszy nocnej nie pobrany: %s", err)
                 return self.data
-            data[pupil_id] = replace(data[pupil_id], lessons=m.parse_all(m.parse_lesson, raw))
+            data[pupil_id] = replace(data[pupil_id], lessons=m.parse_all(m.parse_lesson, raw), free_days=free_days)
         self.last_schedule_sync = dt_util.utcnow()
         await self._detect_changes(data)
         return data
@@ -189,8 +192,9 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         async def none():
             return None
 
-        schedule, exams, homework, grades, notes, messages, attendance = await asyncio.gather(
+        schedule, free_days, exams, homework, grades, notes, messages, attendance = await asyncio.gather(
             self.api.schedule(rest, pid, s_from, s_to),
+            self.api.vacations(rest, pid, s_from, s_to, acc["ConstituentUnit"]["Id"]),
             self._osobno("sprawdziany", self.api.exams(rest, pid, e_from, e_to), []),
             self._osobno("zadania", self.api.homework(rest, pid, h_from, h_to), []),
             self._osobno(
@@ -208,6 +212,7 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
             login_id=login_id,
             name=f"{pupil.get('FirstName', '')} {pupil.get('Surname', '')}".strip(),
             lessons=m.parse_all(m.parse_lesson, schedule),
+            free_days=free_days,
             exams=m.parse_all(m.parse_exam, exams),
             homework=m.parse_all(m.parse_homework, homework),
             grades=m.parse_all(m.parse_grade, grades),

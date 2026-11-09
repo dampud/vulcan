@@ -192,3 +192,40 @@ async def test_sensor_frekwencji_pokazuje_wnioski_w_toku(hass, setup_entry):
     # wniosek w toku nie liczy się jako do usprawiedliwienia
     czeka = {(w["data"], w["lekcja"]) for w in stan.attributes["do_usprawiedliwienia"]}
     assert czeka.isdisjoint({(w["data"], w["lekcja"]) for w in stan.attributes["wnioski"]})
+
+
+async def test_plan_zawiera_dodatkowe_i_cale_dni_wolne(hass, entry, setup_entry):
+    from custom_components.vulcan_dom.calendar import _schedule_events
+
+    setup_entry.data["mobile/schedule/extra/withchanges/byPupil"] = [{
+        "Id": 9001, "DateAt": dane.JUTRO.isoformat(),
+        "SchedulePupilDescription": "Koło testowe", "Teacher": {"DisplayName": "Jan Testowy"},
+        "TimeSlot": {"Start": "08:00", "End": "08:45", "Position": -1}, "Substitution": None,
+    }]
+    setup_entry.data["mobile/school/vacation"] = [
+        {"Id": -1, "Name": "Święto testowe", "From": dane.POJUTRZE.isoformat(), "To": dane.POJUTRZE.isoformat()},
+        {"Id": 2, "Name": "Dzień wolny", "From": (dane.POJUTRZE + timedelta(days=1)).isoformat(),
+         "To": (dane.POJUTRZE + timedelta(days=2)).isoformat()},
+    ]
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    pupil = entry.runtime_data.data[dane.PUPIL_ID]
+    events = _schedule_events(pupil)
+    extra = next(e for e in events if e.summary == "DODATKOWE: Koło testowe")
+    assert extra.start.hour == 8 and extra.start.date() == dane.JUTRO
+    assert pupil.first_lesson(dane.JUTRO).additional
+    free = [e for e in events if e.uid.startswith("F")]
+    assert len(free) == 3 and len({e.uid for e in free}) == 3
+    assert all(e.end - e.start == timedelta(days=1) for e in free)
+    assert free[-1].start == dane.POJUTRZE + timedelta(days=2)
+    call = setup_entry.path_calls("mobile/school/vacation")[-1]
+    assert call["params"]["constituentId"] == str(dane.CONSTITUENT_ID)
+
+
+async def test_blad_dni_wolnych_zachowuje_poprzedni_plan(hass, entry, setup_entry):
+    before = entry.runtime_data.data
+    setup_entry.fail["mobile/school/vacation"] = (503, 0)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert not entry.runtime_data.last_update_success
+    assert entry.runtime_data.data == before

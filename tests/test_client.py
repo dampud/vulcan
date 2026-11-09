@@ -218,3 +218,47 @@ def test_klucz_prywatny_parsowany_raz(cred):
     cred.sign({"vCanonicalUrl": "y", "vDate": "d"}, None)
     assert cred.__dict__["_key_obj"] is pierwszy
     assert "_key_obj" not in cred.to_dict()  # cache nie trafia do pliku z kluczem
+
+
+async def test_schedule_laczy_zajecia_dodatkowe_bez_kolizji_id(cred):
+    from datetime import date
+
+    extra = {"Id": 1, "DateAt": "2026-10-13", "SchedulePupilDescription": "Koło testowe",
+             "Teacher": {"DisplayName": "Jan Testowy"},
+             "TimeSlot": {"Start": "08:55", "End": "09:40", "Position": -1}}
+    session = FakeSession((200, envelope([{"Id": 1}])), (200, envelope([extra])))
+    rows = await VulcanApi(cred, session).schedule(REST, 7, date(2026, 10, 12), date(2026, 10, 16))
+    assert [row["Id"] for row in rows] == [1, "extra-1"]
+    assert rows[1]["Additional"] is True
+    assert rows[1]["Subject"]["Name"] == "Koło testowe"
+    assert rows[1]["TeacherPrimary"] == extra["Teacher"]
+    assert session.calls[1]["url"].endswith("mobile/schedule/extra/withchanges/byPupil")
+
+
+async def test_schedule_dodatkowe_przekazuje_zmiane_daty_i_godziny(cred):
+    from datetime import date
+
+    extra = {"Id": 2, "DateAt": "2026-10-13", "ScheduleDescription": "Koło testowe",
+             "TimeSlot": {"Start": "08:55", "End": "09:40", "Position": -1},
+             "Substitution": {"DateAt": "2026-10-14", "TimeStart": "10:00", "TimeEnd": "10:45",
+                              "ClassAbsence": False}}
+    session = FakeSession((200, envelope([])), (200, envelope([extra])))
+    rows = await VulcanApi(cred, session).schedule(REST, 7, date(2026, 10, 12), date(2026, 10, 16))
+    assert rows[0]["Substitution"]["ChangeDateAt"] == "2026-10-14"
+    assert rows[0]["Substitution"]["TimeSlot"]["Start"] == "10:00"
+
+
+async def test_vacations_przekazuje_wymagany_constituent_id(cred):
+    from datetime import date
+
+    session = FakeSession((200, envelope([])))
+    await VulcanApi(cred, session).vacations(REST, 7, date(2026, 10, 12), date(2026, 10, 16), 77)
+    assert session.calls[0]["params"]["constituentId"] == "77"
+
+
+async def test_blad_zajec_dodatkowych_nie_zwraca_niepelnego_planu(cred):
+    from datetime import date
+
+    session = FakeSession((200, envelope([{"Id": 1}])), (503, "unavailable"))
+    with pytest.raises(TransportError):
+        await VulcanApi(cred, session).schedule(REST, 7, date(2026, 10, 12), date(2026, 10, 16))

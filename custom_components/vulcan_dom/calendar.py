@@ -23,13 +23,31 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
 
 def _lesson_event(l: m.Lesson) -> CalendarEvent:
     prefix = "ODWOŁANA: " if l.cancelled else ("Zmiana: " if l.changed else "")
+    if l.additional and not l.cancelled:
+        prefix = "DODATKOWE: " + prefix
     desc = "\n".join(filter(None, [
         f"Nauczyciel: {l.teacher}" if l.teacher else None,
         f"Grupa: {l.group}" if l.group else None,
         l.change_note,
     ]))
-    return CalendarEvent(start=l.start, end=l.end, summary=f"{prefix}{l.position or ''} {l.subject}".strip(),
+    return CalendarEvent(start=l.start, end=l.end, summary=prefix + " ".join(str(value) for value in (l.position, l.subject) if value),
                          location=l.room, description=desc or None, uid=l.key)
+
+
+def _schedule_events(p: m.PupilData) -> list[CalendarEvent]:
+    events = [_lesson_event(lesson) for lesson in p.lessons]
+    for raw in p.free_days:
+        first, last = m.to_date(raw.get("From")), m.to_date(raw.get("To"))
+        if not first or not last or last < first:
+            continue
+        day = first
+        while day <= last:
+            events.append(CalendarEvent(
+                start=day, end=day + timedelta(days=1), summary=raw.get("Name") or "Dzień wolny",
+                uid=f"F{raw['Id']}-{day.isoformat()}",
+            ))
+            day += timedelta(days=1)
+    return events
 
 
 def _duty_events(p: m.PupilData) -> list[CalendarEvent]:
@@ -52,7 +70,7 @@ def _in_range(ev: CalendarEvent, start: datetime, end: datetime) -> bool:
 
 class LessonsCalendar(VulcanEntity, CalendarEntity):
     def _events(self) -> list[CalendarEvent]:
-        return [_lesson_event(l) for l in self.pupil.lessons] if self.pupil else []
+        return _schedule_events(self.pupil) if self.pupil else []
 
     @property
     def event(self) -> CalendarEvent | None:

@@ -142,6 +142,7 @@ class Lesson:
     changed: bool = False
     cancelled: bool = False
     change_note: str | None = None
+    additional: bool = False
 
 
 @dataclass
@@ -239,6 +240,7 @@ class PupilData:
     login_id: int
     name: str
     lessons: list[Lesson] = field(default_factory=list)
+    free_days: list[dict] = field(default_factory=list)
     exams: list[Exam] = field(default_factory=list)
     homework: list[Homework] = field(default_factory=list)
     grades: list[Grade] = field(default_factory=list)
@@ -369,7 +371,7 @@ def parse_lesson(raw: dict) -> Lesson | None:
         day=day,
         start=datetime.combine(day, start_t, TZ),
         end=datetime.combine(day, end_t, TZ),
-        position=slot.get("Position"),
+        position=slot.get("Position") if (slot.get("Position") or 0) > 0 else None,
         subject=subject,
         teacher=teacher,
         room=room,
@@ -377,6 +379,7 @@ def parse_lesson(raw: dict) -> Lesson | None:
         changed=sub is not None,
         cancelled=cancelled,
         change_note=note,
+        additional=bool(raw.get("Additional")),
     )
 
 

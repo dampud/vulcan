@@ -124,7 +124,7 @@ async def fetch_kind(api: VulcanApi, acc: dict, kind: str, d_from: date, d_to: d
     if kind == "lessons":
         return await api.lessons(rest, pid, d_from, d_to)
     if kind == "vacations":
-        return await api.vacations(rest, pid, d_from, d_to)
+        return await api.vacations(rest, pid, d_from, d_to, acc["ConstituentUnit"]["Id"])
     if kind == "notes":
         return await api.notes(rest, pid)
     if kind == "grades":

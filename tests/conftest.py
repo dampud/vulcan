@@ -81,6 +81,8 @@ class HebeSession:
         self.data: dict[str, Any] = {
             "mobile/register/hebe": [dane.ACCOUNT],
             "mobile/schedule/withchanges/byPupil": list(dane.SCHEDULE),
+            "mobile/schedule/extra/withchanges/byPupil": [],
+            "mobile/school/vacation": [],
             "mobile/exam/byPupil": list(dane.EXAMS),
             "mobile/homework/byPupil": list(dane.HOMEWORK),
             "mobile/grade/byPupil": list(dane.GRADES),
