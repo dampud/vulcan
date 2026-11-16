@@ -92,7 +92,7 @@ Wklejony tekst nie jest nigdzie zapisywany. Home Assistant wymienia go na własn
 | Ostatnia ocena | Najświeższą ocenę z przedmiotem i wagą |
 | Do usprawiedliwienia | Ile nieobecności i spóźnień czeka na usprawiedliwienie |
 | Nieprzeczytane wiadomości | Licznik, a w szczegółach nadawcy i tematy |
-| Uwagi | Liczbę uwag i pochwał |
+| Uwagi | Liczbę uwag i pochwał, a w szczegółach 10 najnowszych z datą, kategorią, treścią i nauczycielem — także tych sprzed instalacji integracji |
 | Szczęśliwy numerek | Dzisiejszy numerek, jeśli szkoła go losuje |
 | Ostatnia synchronizacja | Kiedy integracja ostatnio pytała serwer |
 
@@ -160,6 +160,15 @@ Ustawienia → Urządzenia i usługi → przy eduVULCAN kliknij **Konfiguruj**:
     exclude:
       event_types:
         - vulcan_dom_event
+  ```
+
+- Encja „Uwagi” trzyma w atrybutach treść 10 najnowszych uwag, więc te teksty też trafiają do bazy historii. Jeśli tego nie chcesz, wyklucz encję z recordera:
+
+  ```yaml
+  recorder:
+    exclude:
+      entities:
+        - sensor.<uczeń>_uwagi
   ```
 
 ---
