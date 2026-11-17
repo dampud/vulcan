@@ -8,7 +8,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from custom_components.vulcan_dom.const import DOMAIN
+from custom_components.vulcan_dom.const import DOMAIN, EVENT_TEXT_LIMIT
+from custom_components.vulcan_dom.sensor import MAX_LIST
 
 from . import dane
 
@@ -82,6 +83,53 @@ async def test_oceny_wiadomosci_uwagi_numerek(hass, setup_entry):
     uwagi = hass.states.get(UWAGI)
     assert uwagi.state == "2" and uwagi.attributes["pozytywne"] == 1 and uwagi.attributes["negatywne"] == 1
     assert hass.states.get(NUMEREK).state == "13"
+
+
+async def test_uwagi_z_trescia_w_atrybutach(hass, setup_entry):
+    """Treść uwag widać w encji, także tych sprzed konfiguracji integracji."""
+    atr = hass.states.get(UWAGI).attributes
+    assert atr["uwagi"] == [
+        {"data": (dane.DZIS - timedelta(days=2)).isoformat(), "pozytywna": True,
+         "kategoria": "Pomoc koleżeńska", "tresc": "Pomogła młodszym na przerwie",
+         "nauczyciel": "Anna Wychowawczyni"},
+        {"data": (dane.DZIS - timedelta(days=10)).isoformat(), "pozytywna": False,
+         "kategoria": "Spóźnienie", "tresc": "Spóźnienie na pierwszą lekcję",
+         "nauczyciel": "Jan Nowakowy"},
+    ]
+    assert atr["pokazano"] == 2 and atr["wszystkich"] == 2 and atr["lista_przycieta"] is False
+
+
+def _uwaga(id_: int, dzien, tresc: str = "Treść uwagi") -> dict:
+    return {"Id": id_, "ValidAt": dzien.isoformat() if dzien else None, "Positive": False,
+            "Category": {"Name": "Zachowanie"}, "Content": tresc,
+            "Creator": {"DisplayName": "Jan Nowakowy"}}
+
+
+async def test_uwagi_najnowsze_pierwsze_bez_daty_na_koncu(hass, entry, setup_entry):
+    uwagi = setup_entry.data["mobile/note/byPupil"]
+    uwagi.insert(0, _uwaga(43, None, "x" * (EVENT_TEXT_LIMIT + 50)))
+    uwagi.append(_uwaga(44, dane.DZIS))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    lista = hass.states.get(UWAGI).attributes["uwagi"]
+    assert [u["data"] for u in lista] == [
+        dane.DZIS.isoformat(), (dane.DZIS - timedelta(days=2)).isoformat(),
+        (dane.DZIS - timedelta(days=10)).isoformat(), None]
+    assert len(lista[-1]["tresc"]) == EVENT_TEXT_LIMIT and lista[-1]["tresc"].endswith("…")
+
+
+async def test_uwagi_lista_przycieta(hass, entry, setup_entry):
+    uwagi = setup_entry.data["mobile/note/byPupil"]
+    uwagi.extend(_uwaga(100 + i, dane.DZIS - timedelta(days=20 + i)) for i in range(MAX_LIST))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    stan = hass.states.get(UWAGI)
+    assert stan.state == str(MAX_LIST + 2)
+    assert len(stan.attributes["uwagi"]) == MAX_LIST
+    assert stan.attributes["pokazano"] == MAX_LIST
+    assert stan.attributes["wszystkich"] == MAX_LIST + 2
+    assert stan.attributes["lista_przycieta"] is True
+    assert stan.attributes["pozytywne"] == 1 and stan.attributes["negatywne"] == MAX_LIST + 1
 
 
 async def test_sensor_synchronizacji_zyje_mimo_bledu(hass, entry, setup_entry):

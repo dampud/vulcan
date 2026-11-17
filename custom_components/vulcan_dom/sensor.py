@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -19,6 +19,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import model as m
+from .coordinator import _short
 from .entity import VulcanEntity
 
 MAX_LIST = 10
@@ -92,6 +93,26 @@ def _attendance_attrs(p: m.PupilData) -> dict[str, Any]:
         # słownik typów obecności tej szkoły — same nazwy kategorii, bez treści dziennika.
         # Pozwala sprawdzić, czy defensywne mapowanie flag trafia w realne dane.
         "rodzaje": sorted({a.kind for a in p.attendance if a.kind}),
+    }
+
+
+def _note_entry(n: m.Note) -> dict[str, Any]:
+    return {"data": n.day.isoformat() if n.day else None, "pozytywna": n.positive,
+            "kategoria": n.category, "tresc": _short(n.content), "nauczyciel": n.teacher}
+
+
+def _notes_attrs(p: m.PupilData) -> dict[str, Any]:
+    # Najnowsze pierwsze, uwagi bez daty na końcu. Treść przycinamy jak w zdarzeniach,
+    # a listę do MAX_LIST — atrybuty trafiają do recordera przy każdej zmianie stanu.
+    # Zdarzenie `new_note` widzi tylko uwagi wpisane po konfiguracji; atrybut pokazuje też starsze.
+    notes = sorted(p.notes, key=lambda n: (n.day is not None, n.day or date.min), reverse=True)
+    return {
+        "pozytywne": sum(1 for n in p.notes if n.positive),
+        "negatywne": sum(1 for n in p.notes if not n.positive),
+        "uwagi": [_note_entry(n) for n in notes[:MAX_LIST]],
+        "pokazano": min(len(notes), MAX_LIST),
+        "wszystkich": len(notes),
+        "lista_przycieta": len(notes) > MAX_LIST,
     }
 
 
@@ -200,8 +221,7 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
         key="notes", native_unit_of_measurement="szt.",
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda p: len(p.notes),
-        attrs=lambda p: {"pozytywne": sum(1 for n in p.notes if n.positive),
-                         "negatywne": sum(1 for n in p.notes if not n.positive)},
+        attrs=_notes_attrs,
     ),
     VulcanSensorDescription(
         key="lucky_number",
