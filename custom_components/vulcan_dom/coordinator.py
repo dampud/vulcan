@@ -31,6 +31,7 @@ from .const import (
     WINDOW_SCHEDULE,
 )
 from .vulcan_client import ApiError, AuthError, TransportError, VulcanApi
+from .vulcan_client.errors import PREMIUM_CODE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +81,10 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         self._seen: dict[str, dict[str, list[str]]] | None = None
         self._messages: dict[int, dict[str, m.Message]] = {}
         self._messages_synced: dict[int, datetime] = {}
+        # Pupil.Id -> powód, gdy serwer odmawia skrzynki na stałe (kod 111, brak usługi
+        # rozszerzonej). To nie jest „zero wiadomości", tylko brak dostępu — sensor
+        # nieprzeczytanych idzie wtedy w `unavailable`, a powód trafia do diagnostyki.
+        self.messages_blocked: dict[int, str] = {}
         # Pierwsze pobranie leci bez skrzynki. Setup wpisu jest blokujący: dopóki
         # async_config_entry_first_refresh nie wróci, HA nie kończy fazy startu.
         # Skrzynka jest największa i najwolniejsza, a przy niedostępnym DNS albo
@@ -256,13 +261,30 @@ class VulcanCoordinator(DataUpdateCoordinator[dict[int, m.PupilData]]):
         if self._skip_messages:
             return []
         try:
-            return await self._fetch_messages(rest, pid, box)
-        except (ApiError, TransportError) as err:
-            _LOGGER.warning("Nie udało się pobrać skrzynki (%s) — pozostałe dane bez zmian", err)
-            return sorted(
-                (self._messages.get(pid) or {}).values(),
-                key=lambda x: (x.sent is not None, x.sent),
-            )
+            messages = await self._fetch_messages(rest, pid, box)
+        except ApiError as err:
+            if err.code != PREMIUM_CODE:
+                return self._cached_messages(pid, err)
+            reason = f"brak usługi rozszerzonej ({err})"
+            if self.messages_blocked.get(pid) != reason:
+                _LOGGER.warning("Skrzynka niedostępna: %s — sensor wiadomości będzie niedostępny", reason)
+            else:
+                _LOGGER.debug("Skrzynka nadal niedostępna: %s", reason)
+            self.messages_blocked[pid] = reason
+            return []
+        except TransportError as err:
+            return self._cached_messages(pid, err)
+        if self.messages_blocked.pop(pid, None):
+            _LOGGER.info("Skrzynka znów dostępna")
+        return messages
+
+    def _cached_messages(self, pid: int, err: Exception) -> list[m.Message]:
+        """Przejściowa awaria: oddajemy to, co już mieliśmy."""
+        _LOGGER.warning("Nie udało się pobrać skrzynki (%s) — pozostałe dane bez zmian", err)
+        return sorted(
+            (self._messages.get(pid) or {}).values(),
+            key=lambda x: (x.sent is not None, x.sent),
+        )
 
     async def _fetch_messages(self, rest: str, pid: int, box: str | None) -> list[m.Message]:
         """Pełne pobranie raz na dobę, poza tym tylko to, co się zmieniło od ostatniego razu.

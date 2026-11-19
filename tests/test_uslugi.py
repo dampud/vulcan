@@ -203,3 +203,12 @@ async def test_plan_dnia_z_uslugi_trafia_do_encji(hass, setup_entry):
     assert any(l["odwolana"] for l in out["lekcje"])
     await hass.async_block_till_done()
     assert int(hass.states.get("sensor.ala_testowa_zmiany_w_planie_7_dni").state) == przed + 1
+
+
+async def test_czytanie_zablokowanej_skrzynki_zwraca_powod(hass, entry, setup_entry):
+    """Bez usługi rozszerzonej `count: 0` sugerowałoby pustą skrzynkę."""
+    setup_entry.fail["mobile/messages/received/byBox"] = (200, 111)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    with pytest.raises(HomeAssistantError, match="usługi rozszerzonej"):
+        await wywolaj(hass, "read_messages", {})

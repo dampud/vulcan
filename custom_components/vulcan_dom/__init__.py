@@ -256,6 +256,8 @@ def _register_services(hass: HomeAssistant) -> None:
         pupil = (coord.data or {}).get(acc["Pupil"]["Id"])
         if pupil is None:
             raise HomeAssistantError("brak pobranych danych ucznia")
+        if powod := coord.messages_blocked.get(acc["Pupil"]["Id"]):
+            raise HomeAssistantError(f"skrzynka niedostępna: {powod}")
         szukaj = (call.data.get("search") or "").lower()
         wiadomosci = [
             msg for msg in pupil.messages

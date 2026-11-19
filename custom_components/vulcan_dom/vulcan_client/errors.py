@@ -27,6 +27,9 @@ class AuthError(ApiError):
 # Kody, po których nie ma sensu ponawiać bez działania człowieka.
 AUTH_CODES = {100, 102, 103, 154, 201, 202, 203, 204}
 
+# Konto rodzica bez płatnej „usługi rozszerzonej” — od ~XI 2026 dotyczy też odczytu skrzynki.
+PREMIUM_CODE = 111
+
 KNOWN_CODES = {
     -1: "błąd wewnętrzny serwera",
     100: "nieprawidłowy podpis",
@@ -34,6 +37,7 @@ KNOWN_CODES = {
     102: "brak nagłówka",
     103: "nieprawidłowy nagłówek",
     104: "brak symbolu jednostki",
+    111: "brak usługi rozszerzonej (EDUVULCAN_PREMIUM)",
     154: "nie znaleziono certyfikatu (urządzenie wyrejestrowane?)",
     200: "nie znaleziono obiektu",
     201: "token już użyty",

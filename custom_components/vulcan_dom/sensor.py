@@ -130,6 +130,8 @@ def _grades_attrs(p: m.PupilData) -> dict[str, Any]:
 class VulcanSensorDescription(SensorEntityDescription):
     value: Callable[[m.PupilData], Any]
     attrs: Callable[[m.PupilData], dict[str, Any]] = lambda p: {}
+    # dodatkowy warunek dostępności (koordynator, Pupil.Id) — np. skrzynka bez usługi rozszerzonej
+    available_fn: Callable[[Any, int], bool] = lambda coord, pid: True
 
 
 SENSORS: tuple[VulcanSensorDescription, ...] = (
@@ -190,6 +192,7 @@ SENSORS: tuple[VulcanSensorDescription, ...] = (
     VulcanSensorDescription(
         key="unread_messages", native_unit_of_measurement="szt.",
         state_class=SensorStateClass.MEASUREMENT,
+        available_fn=lambda coord, pid: pid not in coord.messages_blocked,
         value=lambda p: p.unread_messages,
         attrs=lambda p: {"ostatnie": [
             f"{x.sent.strftime('%d.%m %H:%M') if x.sent else ''} {x.sender}: {x.subject}"
@@ -227,6 +230,10 @@ class VulcanSensor(VulcanEntity, SensorEntity):
         self.entity_description = description
 
     @property
+    def available(self) -> bool:
+        return super().available and self.entity_description.available_fn(self.coordinator, self.pupil_id)
+
+    @property
     def native_value(self):
         return self.entity_description.value(self.pupil) if self.pupil else None
 
@@ -256,4 +263,9 @@ class VulcanLastSync(VulcanEntity, SensorEntity):
         # tego warunku sensor straszyłby błędem sprzed godzin, gdy wszystko już działa
         ok = self.coordinator.last_update_success
         err = None if ok else self.coordinator.last_exception
-        return {"ok": ok, "blad": str(err) if err else None}
+        return {
+            "ok": ok,
+            "blad": str(err) if err else None,
+            # sensor wiadomości jest wtedy `unavailable` i nie ma atrybutów — powód tu
+            "skrzynka_blad": self.coordinator.messages_blocked.get(self.pupil_id),
+        }
