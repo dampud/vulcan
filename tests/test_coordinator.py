@@ -258,3 +258,48 @@ async def test_bledna_kategoria_nie_wywraca_odswiezenia(hass, entry, setup_entry
     assert uczen.lessons and uczen.attendance   # plan i frekwencja nietknięte
     assert uczen.grades == []                   # same oceny puste
     assert hass.states.get("sensor.ala_testowa_ostatnia_synchronizacja").attributes["blad"] is None
+
+
+SKRZYNKA = "mobile/messages/received/byBox"
+WIADOMOSCI = "sensor.ala_testowa_nieprzeczytane_wiadomosci"
+SYNC = "sensor.ala_testowa_ostatnia_synchronizacja"
+
+
+async def test_skrzynka_bez_uslugi_rozszerzonej_daje_niedostepny_sensor(hass, entry, setup_entry):
+    """Kod 111 (EDUVULCAN_PREMIUM) to brak dostępu, nie brak wiadomości — zero byłoby kłamstwem."""
+    setup_entry.fail[SKRZYNKA] = (200, 111)
+    await odswiez(hass, entry)
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.last_update_success is True
+    assert hass.states.get(WIADOMOSCI).state == "unavailable"
+    assert hass.states.get("sensor.ala_testowa_ostatnia_ocena").state != "unavailable"
+    powod = hass.states.get(SYNC).attributes["skrzynka_blad"]
+    assert "usługi rozszerzonej" in powod and "111" in powod
+
+
+async def test_skrzynka_wraca_po_odblokowaniu(hass, entry, setup_entry):
+    setup_entry.fail[SKRZYNKA] = (200, 111)
+    await odswiez(hass, entry)
+    del setup_entry.fail[SKRZYNKA]
+    await odswiez(hass, entry)
+    stan = hass.states.get(WIADOMOSCI)
+    assert stan.state not in ("unavailable", "unknown")
+    assert int(stan.state) == entry.runtime_data.data[dane.PUPIL_ID].unread_messages
+    assert hass.states.get(SYNC).attributes["skrzynka_blad"] is None
+
+
+async def test_przejsciowa_awaria_skrzynki_nie_blokuje_sensora(hass, entry, setup_entry):
+    przed = hass.states.get(WIADOMOSCI).state
+    setup_entry.fail[SKRZYNKA] = (502, 0)
+    await odswiez(hass, entry)
+    assert hass.states.get(WIADOMOSCI).state == przed
+    assert hass.states.get(SYNC).attributes["skrzynka_blad"] is None
+
+
+async def test_blokada_skrzynki_logowana_raz(hass, entry, setup_entry, caplog):
+    setup_entry.fail[SKRZYNKA] = (200, 111)
+    await odswiez(hass, entry)
+    await odswiez(hass, entry)
+    await odswiez(hass, entry)
+    ostrzezenia = [r for r in caplog.records if r.levelname == "WARNING" and "skrzynk" in r.getMessage().lower()]
+    assert len(ostrzezenia) == 1

@@ -174,7 +174,7 @@ Ustawienia → Urządzenia i usługi → przy eduVULCAN kliknij **Konfiguruj**:
 
 **Home Assistant prosi o ponowne dodanie danych.** eduVULCAN unieważnił klucz urządzenia, na przykład po zmianie hasła. Powtórz krok 2 i wklej świeży tekst.
 
-**Wysyłka wiadomości nie działa.** Ta funkcja wymaga na koncie usługi rozszerzonej (płatnej). Bez niej odczyt działa normalnie, a zapis zwraca błąd.
+**Wiadomości są „niedostępne” albo wysyłka nie działa.** Skrzynka wymaga na koncie usługi rozszerzonej (płatnej). Od listopada 2026 eduVULCAN bez niej blokuje nie tylko wysyłkę, ale też odczyt wiadomości. Sensor *Nieprzeczytane wiadomości* pokazuje wtedy „niedostępne” (a nie fałszywe zero), usługa `read_messages` zwraca błąd, a powód widać w atrybucie `skrzynka_blad` sensora *Ostatnia synchronizacja*. Pozostałe dane (plan, oceny, sprawdziany, frekwencja, uwagi) działają bez zmian.
 
 ---
 
